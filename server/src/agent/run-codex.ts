@@ -11,12 +11,13 @@ import {
 import { executeCli } from "./cli-runner.js";
 import { getLoginShellEnvironment, resolveCliExecutable, type EnvMap } from "./shell-env.js";
 
+const REQUIRED_CODEX_GLOBAL_FLAGS = ["--ask-for-approval"];
+
 const REQUIRED_CODEX_EXEC_FLAGS = [
   "Run Codex non-interactively",
   "--model",
   "--cd",
   "--sandbox",
-  "--ask-for-approval",
   "--ephemeral",
   "--output-last-message",
 ];
@@ -28,19 +29,41 @@ async function ensureCodexExecSupportsRequiredFlags(
   env: EnvMap,
   cwd: string,
 ): Promise<void> {
-  codexFlagCheck ??= executeCli({
-    label: "codex-help",
-    command: codexBin,
-    args: ["exec", "--help"],
-    cwd,
-    env,
-    timeoutMs: 10_000,
-  }).then((result) => {
-    const helpText = `${result.stdout}\n${result.stderr}`;
-    const missing = REQUIRED_CODEX_EXEC_FLAGS.filter((flag) => !helpText.includes(flag));
-    if (missing.length > 0) {
+  codexFlagCheck ??= Promise.all([
+    executeCli({
+      label: "codex-help",
+      command: codexBin,
+      args: ["--help"],
+      cwd,
+      env,
+      timeoutMs: 10_000,
+    }),
+    executeCli({
+      label: "codex-exec-help",
+      command: codexBin,
+      args: ["exec", "--help"],
+      cwd,
+      env,
+      timeoutMs: 10_000,
+    }),
+  ]).then(([globalHelp, execHelp]) => {
+    const globalHelpText = `${globalHelp.stdout}\n${globalHelp.stderr}`;
+    const missingGlobal = REQUIRED_CODEX_GLOBAL_FLAGS.filter(
+      (flag) => !globalHelpText.includes(flag),
+    );
+    if (missingGlobal.length > 0) {
       throw new Error(
-        `codex exec does not expose required non-interactive flags: ${missing.join(", ")}`,
+        `codex does not expose required non-interactive flags: ${missingGlobal.join(", ")}`,
+      );
+    }
+
+    const execHelpText = `${execHelp.stdout}\n${execHelp.stderr}`;
+    const missingExec = REQUIRED_CODEX_EXEC_FLAGS.filter(
+      (flag) => !execHelpText.includes(flag),
+    );
+    if (missingExec.length > 0) {
+      throw new Error(
+        `codex exec does not expose required non-interactive flags: ${missingExec.join(", ")}`,
       );
     }
   });
@@ -50,6 +73,8 @@ async function ensureCodexExecSupportsRequiredFlags(
 
 function buildCodexArgs(repoPath: string, outputPath: string, model?: string): string[] {
   const args = [
+    "--ask-for-approval",
+    "never",
     "exec",
     "--cd",
     repoPath,
@@ -59,8 +84,6 @@ function buildCodexArgs(repoPath: string, outputPath: string, model?: string): s
     `model_reasoning_effort="${DEFAULT_CODEX_REASONING_EFFORT}"`,
     "--sandbox",
     "read-only",
-    "--ask-for-approval",
-    "never",
     "--skip-git-repo-check",
     "--ephemeral",
     "--color",
