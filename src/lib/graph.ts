@@ -249,17 +249,21 @@ function buildEdges(
       highlightedNodeIds.has(tgt);
     const dimmed = hasHighlight && !lit;
 
-    const stroke = lit ? '#f2b968' : '#3a4a63';
+    // PostHog palette: quiet olive by default, blue accent when a path is lit.
+    const stroke = lit ? '#2C84E0' : '#BFC1B7';
     edges.push({
       id,
       source: src,
       target: tgt,
       type: 'smoothstep',
+      // `animated` draws the moving dashed stroke for "live path" edges.
+      animated: lit,
       data: { kind: e.kind },
       style: {
         stroke,
-        strokeWidth: lit ? 1.8 : 1.1,
-        opacity: dimmed ? 0.12 : lit ? 0.9 : 0.42,
+        strokeWidth: lit ? 2.5 : 1.5,
+        opacity: dimmed ? 0.15 : lit ? 1 : 0.55,
+        transition: 'stroke 150ms ease-out, opacity 150ms ease-out, stroke-width 150ms ease-out',
       },
       markerEnd: {
         type: MarkerType.ArrowClosed,

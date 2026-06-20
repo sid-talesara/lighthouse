@@ -2,7 +2,15 @@ import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { FileNodeData } from '../../lib/graph';
 
-/** Leaf node — a single key file. Mono path, summary on hover/active. */
+/**
+ * File node — the lightest weight leaf. A compact white card with a thin amber
+ * accent stripe, the file name in mono, and a summary on hover/active.
+ *
+ * Selection = yellow ring, highlight = blue emphasis + gentle pulse, dim =
+ * lowered opacity. Flat, no shadows.
+ */
+const STRIPE = 'bg-ph-node-util'; // file = amber
+
 function FileNodeImpl({ data, selected }: NodeProps) {
   const d = data as FileNodeData;
   const active = d.selected || selected;
@@ -10,37 +18,36 @@ function FileNodeImpl({ data, selected }: NodeProps) {
   return (
     <div
       className={[
-        'group relative w-[210px] cursor-pointer rounded-lg border bg-abyss-800/80 px-3 py-2',
-        'transition-all duration-300',
+        'group relative w-[210px] cursor-pointer overflow-hidden rounded-ph-sm border bg-ph-surface pl-4 pr-3 py-2',
+        'transition-[opacity,border-color,transform] duration-150 ease-out hover:-translate-y-0.5',
         active
-          ? 'border-beacon-500/70'
+          ? 'border-ph-yellow shadow-ph-focus-yellow'
           : d.highlighted
-            ? 'border-beacon-400/55'
-            : 'border-slate2-400/14 hover:border-slate2-300/35',
-        d.dimmed ? 'opacity-35' : 'opacity-100',
-        d.highlighted ? 'animate-beaconPulse' : '',
+            ? 'border-ph-blue'
+            : 'border-ph-border hover:border-ph-ash',
+        d.dimmed ? 'opacity-40' : 'opacity-100',
       ].join(' ')}
-      style={{
-        boxShadow: active ? '0 0 0 1px rgba(242,185,104,0.28)' : 'none',
-      }}
     >
+      <span className={`absolute inset-y-0 left-0 w-1 ${STRIPE}`} />
+      {d.highlighted && !active && (
+        <span className="pointer-events-none absolute inset-0 rounded-ph-sm ring-2 ring-ph-blue/40 animate-pulse" />
+      )}
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
 
       <div className="flex items-center gap-1.5">
-        <span className="font-mono text-[10px] text-tide-400/70">›</span>
-        <span className="truncate font-mono text-[11.5px] text-slate2-200" title={d.label}>
+        <span className="truncate font-mono text-[11.5px] font-medium text-ph-ink" title={d.label}>
           {d.label}
         </span>
         {d.changedRecently && (
-          <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-beacon-400 shadow-[0_0_7px_2px_rgba(242,185,104,0.5)]" />
+          <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-ph-yellow" />
         )}
       </div>
 
       {d.summary && (
         <p
           className={[
-            'mt-0.5 text-[10.5px] leading-snug text-slate2-400',
+            'mt-0.5 text-[10.5px] leading-snug text-ph-mute',
             active ? 'line-clamp-2' : 'line-clamp-1 opacity-0 group-hover:opacity-100',
             'transition-opacity duration-200',
           ].join(' ')}
