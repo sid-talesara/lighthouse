@@ -1,289 +1,648 @@
 /**
- * DatabaseView — ER diagram for the database schema dimension.
+ * DatabaseView — consumable database schema explorer.
  *
- * Renders `data.dbTables` as an interactive ER diagram using @xyflow/react
- * + elkjs for layout. FK columns become directed edges between table nodes.
+ * Three layers of digestibility:
+ *   1. OVERVIEW (default): tables grouped by owning module, collapsible cards
+ *      showing table counts — not 87 tables dumped at once.
+ *   2. SEARCH: filter by table name or column name; filters inside each group.
+ *   3. FOCUS ER: clicking a table enters an ER diagram showing only that table
+ *      + its FK-connected neighbors. "Show all" toggle for power users.
+ *
+ * Table detail panel: columns (PK/FK badges), summary, owning module, and
+ * a "View schema source" code viewer for best-effort schema file lookup.
  *
  * ViewProps contract:
- *   - selectedNodeId / onSelectNode: a selected table maps to its module_id
- *     so the Architecture tab can show where the table's code lives.
- *   - highlightedNodeIds: incoming highlighted node ids are reflected as
- *     table selections when a table's module_id matches.
- *   - onHighlightNodes: called with the set of module_ids of connected tables
- *     so the rest of the app can co-highlight the relevant code modules.
+ *   selectedNodeId / onSelectNode: cross-links to Architecture tab via module_id.
+ *   onHighlightNodes: fires with connected module ids so the map co-highlights.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import type { ViewProps } from './viewContract';
+import type { DbTable, LighthouseNode } from '../../types/lighthouse';
 import { ErDiagram } from './ErDiagram';
+import { buildGroups, GroupCard } from './DbGroups';
+import { CodeViewer } from '../CodeViewer';
 
-// ─── Legend chip ──────────────────────────────────────────────────────────────
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
-const MODULE_ACCENT: Record<string, string> = {
-  mod_db_models:           '#2C84E0',
-  mod_shared_contracts:    '#7C44A6',
-  mod_execution_artifacts: '#2C8C66',
-  mod_recorder_engine:     '#DC9300',
-  mod_public_api:          '#1078A3',
-  mod_ai_chat:             '#F54E00',
-  mod_ai_failure_healing:  '#CD4239',
-};
-
-const MODULE_LABELS: Record<string, string> = {
-  mod_db_models:           'db_models',
-  mod_shared_contracts:    'shared_contracts',
-  mod_execution_artifacts: 'execution_artifacts',
-  mod_recorder_engine:     'recorder_engine',
-  mod_public_api:          'public_api',
-  mod_ai_chat:             'ai_chat',
-  mod_ai_failure_healing:  'ai_failure_healing',
-};
-
-interface LegendChipProps {
-  color: string;
-  label: string;
+function buildModuleAccentMap(nodes: LighthouseNode[]): Map<string, string> {
+  const palette = [
+    '#2C84E0', '#7C44A6', '#2C8C66', '#DC9300',
+    '#1078A3', '#F54E00', '#CD4239', '#6C6E63',
+  ];
+  const map = new Map<string, string>();
+  let i = 0;
+  for (const n of nodes) {
+    if (!map.has(n.id)) map.set(n.id, palette[i++ % palette.length]);
+  }
+  return map;
 }
-function LegendChip({ color, label }: LegendChipProps) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 5,
-        fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-        fontSize: 10,
-        color: '#4D4F46',
-      }}
-    >
-      <div
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 2,
-          background: color,
-          flexShrink: 0,
-        }}
-      />
-      {label}
-    </div>
+
+function findSchemaSourcePath(table: DbTable, nodes: LighthouseNode[]): string | null {
+  if (!table.module_id) return null;
+  const node = nodes.find((n) => n.id === table.module_id);
+  if (!node) return null;
+
+  // Prefer a key_file that mentions "schema"
+  const schemaFile = node.key_files.find((f) => f.toLowerCase().includes('schema'));
+  if (schemaFile) return schemaFile;
+
+  // Fall back to path containing "schema"
+  if (node.path.toLowerCase().includes('schema')) return node.path;
+
+  // Fall back to first key_file that looks like a .ts/.py/.sql
+  const codeFile = node.key_files.find((f) =>
+    /\.(ts|tsx|js|py|sql|rb|go|rs)$/.test(f),
   );
+  return codeFile ?? null;
 }
 
-// ─── info panel for selected table ───────────────────────────────────────────
+// ─── FK neighbor computation ─────────────────────────────────────────────────
 
-interface TableInfoPanelProps {
-  tableId: string | null;
-  tables: import('../../types/lighthouse').DbTable[];
+function fkNeighbors(tableId: string, tables: DbTable[]): Set<string> {
+  const s = new Set<string>();
+  for (const t of tables) {
+    for (const col of t.columns) {
+      if (col.fk) {
+        if (t.id === tableId) s.add(col.fk);
+        if (col.fk === tableId) s.add(t.id);
+      }
+    }
+  }
+  return s;
+}
+
+// ─── TableDetailPanel ─────────────────────────────────────────────────────────
+
+interface TableDetailPanelProps {
+  table: DbTable;
+  nodes: LighthouseNode[];
+  accentMap: Map<string, string>;
   onClose: () => void;
+  onFocusER: () => void;
+  onSelectModule: (id: string) => void;
 }
-function TableInfoPanel({ tableId, tables, onClose }: TableInfoPanelProps) {
-  const table = tables.find((t) => t.id === tableId);
-  if (!table) return null;
 
-  const accent = MODULE_ACCENT[table.module_id ?? ''] ?? '#9B9C92';
+function TableDetailPanel({
+  table,
+  nodes,
+  accentMap,
+  onClose,
+  onFocusER,
+  onSelectModule,
+}: TableDetailPanelProps) {
+  const [showSource, setShowSource] = useState(false);
+  const accent = accentMap.get(table.module_id ?? '') ?? '#9B9C92';
+  const owningNode = nodes.find((n) => n.id === table.module_id);
+  const schemaPath = findSchemaSourcePath(table, nodes);
+
+  const pkCols = table.columns.filter((c) => c.pk);
+  const fkCols = table.columns.filter((c) => c.fk);
 
   return (
     <div
       style={{
         position: 'absolute',
-        top: 16,
-        right: 16,
-        width: 264,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        width: 300,
         background: '#FFFFFF',
-        border: '1.5px solid #BFC1B7',
-        borderRadius: 6,
-        boxShadow: '0 1px 3px rgba(20,20,20,0.10)',
-        zIndex: 10,
-        overflow: 'hidden',
+        borderLeft: '1px solid #BFC1B7',
+        display: 'flex',
+        flexDirection: 'column',
+        zIndex: 20,
         fontFamily: '"Nunito", system-ui, sans-serif',
-        animation: 'erPanelIn 180ms ease-out both',
+        animation: 'dbPanelIn 180ms ease-out both',
+        overflow: 'hidden',
       }}
     >
       <style>{`
-        @keyframes erPanelIn {
-          from { opacity: 0; transform: translateX(8px); }
-          to   { opacity: 1; transform: translateX(0);   }
+        @keyframes dbPanelIn {
+          from { opacity: 0; transform: translateX(12px); }
+          to   { opacity: 1; transform: translateX(0); }
         }
       `}</style>
-      {/* accent bar */}
-      <div style={{ height: 3, background: accent }} />
 
-      <div style={{ padding: '12px 14px 4px' }}>
-        {/* header */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                color: '#151515',
-                lineHeight: 1.3,
-              }}
-            >
-              {table.name}
-            </div>
-            {table.module_id && (
-              <div
-                style={{
-                  fontSize: 9,
-                  fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-                  color: accent,
-                  marginTop: 2,
-                }}
-              >
-                {MODULE_LABELS[table.module_id] ?? table.module_id}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#9B9C92',
-              fontSize: 14,
-              lineHeight: 1,
-              padding: 0,
-              flexShrink: 0,
-            }}
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
+      {/* accent top bar */}
+      <div style={{ height: 3, background: accent, flexShrink: 0 }} />
 
-        {table.summary && (
-          <p
-            style={{
-              fontSize: 11,
-              color: '#6C6E63',
-              lineHeight: 1.45,
-              margin: '0 0 10px',
-              fontFamily: 'system-ui, -apple-system, sans-serif',
-            }}
-          >
-            {table.summary}
-          </p>
-        )}
-
-        {/* stats row */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 10,
-            marginBottom: 10,
-          }}
-        >
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: '#6C6E63',
-              background: '#E5E7E0',
-              borderRadius: 4,
-              padding: '2px 7px',
-            }}
-          >
-            {table.columns.length} cols
-          </span>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: '#6C6E63',
-              background: '#E5E7E0',
-              borderRadius: 4,
-              padding: '2px 7px',
-            }}
-          >
-            {table.columns.filter((c) => c.pk).length} PK ·{' '}
-            {table.columns.filter((c) => c.fk).length} FK
-          </span>
-        </div>
-      </div>
-
-      {/* columns detail */}
+      {/* header */}
       <div
         style={{
-          borderTop: '1px solid #E5E7E0',
-          maxHeight: 180,
-          overflowY: 'auto',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
+          padding: '12px 14px 10px',
+          borderBottom: '1px solid #E5E7E0',
+          flexShrink: 0,
         }}
       >
-        {table.columns.map((col) => (
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div
-            key={col.name}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '5px 14px',
-              borderBottom: '1px solid #F4F4F0',
+              fontSize: 14,
+              fontWeight: 700,
+              color: '#151515',
+              lineHeight: 1.3,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
           >
-            {col.pk && (
-              <span
-                style={{
-                  fontSize: 8,
-                  fontWeight: 700,
-                  color: '#DC9300',
-                  background: '#FEF3C7',
-                  borderRadius: 3,
-                  padding: '1px 4px',
-                  flexShrink: 0,
-                }}
-              >
-                PK
-              </span>
-            )}
-            {col.fk && !col.pk && (
-              <span
-                style={{
-                  fontSize: 8,
-                  fontWeight: 700,
-                  color: '#1078A3',
-                  background: '#DCEAF6',
-                  borderRadius: 3,
-                  padding: '1px 4px',
-                  flexShrink: 0,
-                }}
-              >
-                FK
-              </span>
-            )}
-            {!col.pk && !col.fk && <span style={{ width: 20, flexShrink: 0 }} />}
-            <span
+            {table.name}
+          </div>
+
+          {owningNode && (
+            <button
+              onClick={() => onSelectModule(table.module_id!)}
               style={{
-                fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-                fontSize: 10,
-                color: '#23251D',
-                flex: 1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {col.name}
-            </span>
-            <span
-              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                marginTop: 3,
+                background: `${accent}14`,
+                border: 'none',
+                borderRadius: 4,
+                padding: '2px 7px',
+                cursor: 'pointer',
                 fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
                 fontSize: 9,
-                color: '#9B9C92',
-                flexShrink: 0,
+                color: accent,
+                fontWeight: 600,
+              }}
+              title="Go to module in Architecture"
+            >
+              {owningNode.label}
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                <path d="M1 4h6M4 1l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <button
+          onClick={onClose}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: '#9B9C92',
+            fontSize: 16,
+            lineHeight: 1,
+            padding: '2px 4px',
+            flexShrink: 0,
+            borderRadius: 4,
+          }}
+          title="Close"
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* summary */}
+      {table.summary && (
+        <div
+          style={{
+            padding: '10px 14px',
+            borderBottom: '1px solid #E5E7E0',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: 12,
+            color: '#4D4F46',
+            lineHeight: 1.5,
+            flexShrink: 0,
+          }}
+        >
+          {table.summary}
+        </div>
+      )}
+
+      {/* stats row */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          padding: '8px 14px',
+          borderBottom: '1px solid #E5E7E0',
+          flexShrink: 0,
+          flexWrap: 'wrap',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: '#6C6E63',
+            background: '#E5E7E0',
+            borderRadius: 4,
+            padding: '2px 7px',
+          }}
+        >
+          {table.columns.length} columns
+        </span>
+        {pkCols.length > 0 && (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: '#DC9300',
+              background: '#FEF3C7',
+              borderRadius: 4,
+              padding: '2px 7px',
+            }}
+          >
+            {pkCols.length} PK
+          </span>
+        )}
+        {fkCols.length > 0 && (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: '#1078A3',
+              background: '#DCEAF6',
+              borderRadius: 4,
+              padding: '2px 7px',
+            }}
+          >
+            {fkCols.length} FK
+          </span>
+        )}
+      </div>
+
+      {/* action buttons */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 6,
+          padding: '8px 14px',
+          borderBottom: '1px solid #E5E7E0',
+          flexShrink: 0,
+        }}
+      >
+        <button
+          onClick={onFocusER}
+          style={{
+            flex: 1,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 5,
+            height: 30,
+            background: '#F7A501',
+            border: '1px solid #DD9001',
+            borderRadius: 6,
+            cursor: 'pointer',
+            fontFamily: '"Nunito", system-ui, sans-serif',
+            fontSize: 11,
+            fontWeight: 700,
+            color: '#23251D',
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M6 3v3l2 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          Focus ER
+        </button>
+        {schemaPath && (
+          <button
+            onClick={() => setShowSource((v) => !v)}
+            style={{
+              flex: 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              height: 30,
+              background: showSource ? '#E5E7E0' : '#FFFFFF',
+              border: '1px solid #BFC1B7',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontFamily: '"Nunito", system-ui, sans-serif',
+              fontSize: 11,
+              fontWeight: 600,
+              color: '#4D4F46',
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="2" y="1.5" width="8" height="9" rx="1" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M4 4h4M4 6h4M4 8h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            {showSource ? 'Hide source' : 'View source'}
+          </button>
+        )}
+      </div>
+
+      {/* scrollable columns list */}
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        {/* columns */}
+        <div style={{ borderBottom: showSource ? '1px solid #E5E7E0' : 'none' }}>
+          {table.columns.map((col, i) => (
+            <div
+              key={col.name}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 14px',
+                borderBottom: i < table.columns.length - 1 ? '1px solid #F4F4F0' : 'none',
+                background: col.pk ? '#FFFEF7' : 'transparent',
               }}
             >
-              {col.type}
-            </span>
+              {/* PK badge */}
+              {col.pk && (
+                <span
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 700,
+                    color: '#DC9300',
+                    background: '#FEF3C7',
+                    borderRadius: 3,
+                    padding: '1px 4px',
+                    flexShrink: 0,
+                  }}
+                >
+                  PK
+                </span>
+              )}
+              {/* FK badge */}
+              {col.fk && !col.pk && (
+                <span
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 700,
+                    color: '#1078A3',
+                    background: '#DCEAF6',
+                    borderRadius: 3,
+                    padding: '1px 4px',
+                    flexShrink: 0,
+                  }}
+                >
+                  FK
+                </span>
+              )}
+              {/* spacer when neither */}
+              {!col.pk && !col.fk && <span style={{ width: 20, flexShrink: 0 }} />}
+
+              {/* column name */}
+              <span
+                style={{
+                  fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
+                  fontSize: 11,
+                  color: col.pk ? '#151515' : '#23251D',
+                  fontWeight: col.pk ? 600 : 400,
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {col.name}
+              </span>
+
+              {/* type */}
+              <span
+                style={{
+                  fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
+                  fontSize: 10,
+                  color: '#9B9C92',
+                  flexShrink: 0,
+                }}
+              >
+                {col.type}
+              </span>
+
+              {/* FK target */}
+              {col.fk && (
+                <span
+                  style={{
+                    fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
+                    fontSize: 9,
+                    color: '#1078A3',
+                    flexShrink: 0,
+                    maxWidth: 72,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={`→ ${col.fk}`}
+                >
+                  → {col.fk}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* code viewer */}
+        {showSource && schemaPath && (
+          <div style={{ padding: '12px 0 0' }}>
+            <div
+              style={{
+                padding: '0 14px 8px',
+                fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
+                fontSize: 10,
+                color: '#9B9C92',
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Schema source
+            </div>
+            <CodeViewer path={schemaPath} maxHeight="30vh" />
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
 }
 
+// ─── ER Focus mode wrapper ────────────────────────────────────────────────────
+
+interface ErFocusModeProps {
+  tables: DbTable[];
+  focusTableId: string;
+  showAll: boolean;
+  onToggleShowAll: () => void;
+  onSelectTable: (id: string | null) => void;
+}
+
+function ErFocusMode({
+  tables,
+  focusTableId,
+  showAll,
+  onToggleShowAll,
+  onSelectTable,
+}: ErFocusModeProps) {
+  const neighbors = useMemo(
+    () => fkNeighbors(focusTableId, tables),
+    [focusTableId, tables],
+  );
+
+  const visibleTables = useMemo(() => {
+    if (showAll) return tables;
+    return tables.filter((t) => t.id === focusTableId || neighbors.has(t.id));
+  }, [tables, focusTableId, neighbors, showAll]);
+
+  return (
+    <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      {/* mode banner */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 12,
+          left: 12,
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          background: '#FFFFFF',
+          border: '1px solid #BFC1B7',
+          borderRadius: 6,
+          padding: '6px 10px',
+          boxShadow: '0 1px 4px rgba(21,21,21,0.10)',
+          fontFamily: '"Nunito", system-ui, sans-serif',
+          fontSize: 11,
+          color: '#4D4F46',
+        }}
+      >
+        <span style={{ fontWeight: 600 }}>
+          Focus: {visibleTables.length} of {tables.length} tables
+        </span>
+        <span style={{ color: '#BFC1B7' }}>·</span>
+        <button
+          onClick={onToggleShowAll}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: '#2C84E0',
+            fontSize: 11,
+            fontWeight: 600,
+            padding: 0,
+            fontFamily: '"Nunito", system-ui, sans-serif',
+          }}
+        >
+          {showAll ? 'Back to focus' : 'Show all'}
+        </button>
+      </div>
+
+      <ErDiagram
+        tables={visibleTables}
+        selectedTableId={focusTableId}
+        onSelectTable={onSelectTable}
+      />
+    </div>
+  );
+}
+
+// ─── Overview mode ────────────────────────────────────────────────────────────
+
+interface OverviewModeProps {
+  tables: DbTable[];
+  nodes: LighthouseNode[];
+  clusters: import('../../types/lighthouse').Cluster[];
+  accentMap: Map<string, string>;
+  filterText: string;
+  selectedTableId: string | null;
+  onSelectTable: (id: string) => void;
+}
+
+function OverviewMode({
+  tables,
+  nodes,
+  clusters,
+  accentMap: _accentMap,
+  filterText,
+  selectedTableId,
+  onSelectTable,
+}: OverviewModeProps) {
+  const groups = useMemo(
+    () => buildGroups(tables, nodes, clusters),
+    [tables, nodes, clusters],
+  );
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => {
+    // Auto-expand top 3 by default so first impression isn't empty
+    const top3 = groups.slice(0, 3).map((g) => g.id);
+    return new Set(top3);
+  });
+
+  // Re-initialize when groups change
+  useEffect(() => {
+    setExpandedGroups((prev) => {
+      if (prev.size > 0) return prev;
+      const top3 = groups.slice(0, 3).map((g) => g.id);
+      return new Set(top3);
+    });
+  }, [groups]);
+
+  const toggleGroup = useCallback((id: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Filter: find tables matching query
+  const matchingTableCount = useMemo(() => {
+    if (!filterText) return null;
+    const q = filterText.toLowerCase();
+    return tables.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.columns.some((c) => c.name.toLowerCase().includes(q)),
+    ).length;
+  }, [filterText, tables]);
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      {filterText && matchingTableCount !== null && (
+        <div
+          style={{
+            fontFamily: '"Nunito", system-ui, sans-serif',
+            fontSize: 11,
+            color: '#9B9C92',
+            padding: '0 2px 4px',
+          }}
+        >
+          {matchingTableCount === 0
+            ? 'No tables match'
+            : `${matchingTableCount} table${matchingTableCount === 1 ? '' : 's'} match`}
+        </div>
+      )}
+
+      {groups.map((group) => (
+        <GroupCard
+          key={group.id}
+          group={group}
+          isExpanded={expandedGroups.has(group.id)}
+          onToggle={() => toggleGroup(group.id)}
+          selectedTableId={selectedTableId}
+          onSelectTable={onSelectTable}
+          filterText={filterText}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── DatabaseView ─────────────────────────────────────────────────────────────
+
+type ViewMode = 'overview' | 'er';
 
 export function DatabaseView({
   data,
@@ -293,32 +652,40 @@ export function DatabaseView({
   onHighlightNodes,
 }: ViewProps) {
   const tables = useMemo(() => data.dbTables ?? [], [data.dbTables]);
+  const nodes = useMemo(() => data.nodes ?? [], [data.nodes]);
+  const clusters = useMemo(() => data.clusters ?? [], [data.clusters]);
 
-  // Map incoming selectedNodeId back to a table if it matches a module_id.
+  const accentMap = useMemo(
+    () => buildModuleAccentMap(nodes),
+    [nodes],
+  );
+
+  // ── search ────────────────────────────────────────────────────────────────
+  const [filterText, setFilterText] = useState('');
+
+  // ── view mode ─────────────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<ViewMode>('overview');
+  const [erShowAll, setErShowAll] = useState(false);
+
+  // ── table selection ───────────────────────────────────────────────────────
+  const [localSelectedId, setLocalSelectedId] = useState<string | null>(null);
+
+  // Reflect incoming selectedNodeId → table
   const selectedFromParent = useMemo<string | null>(() => {
     if (!selectedNodeId) return null;
     const match = tables.find((t) => t.module_id === selectedNodeId || t.id === selectedNodeId);
     return match?.id ?? null;
   }, [selectedNodeId, tables]);
 
-  // Reflect incoming highlightedNodeIds: if any module matches, select that table.
+  // Reflect incoming highlightedNodeIds → table
   const highlightedTableId = useMemo<string | null>(() => {
     if (highlightedNodeIds.size === 0) return null;
     const match = tables.find((t) => t.module_id && highlightedNodeIds.has(t.module_id));
     return match?.id ?? null;
   }, [highlightedNodeIds, tables]);
 
-  // Local selection — tracks which table the user clicked in this view.
-  const [localSelectedId, setLocalSelectedId] = useState<string | null>(null);
-
-  // Effective selected table: local click > incoming highlight > incoming select
   const selectedTableId = localSelectedId ?? highlightedTableId ?? selectedFromParent;
-
-  // Unique modules present in data (for legend)
-  const presentModules = useMemo(
-    () => [...new Set(tables.map((t) => t.module_id).filter(Boolean))] as string[],
-    [tables],
-  );
+  const selectedTable = tables.find((t) => t.id === selectedTableId) ?? null;
 
   const handleSelectTable = useCallback(
     (id: string | null) => {
@@ -330,27 +697,17 @@ export function DatabaseView({
         return;
       }
 
-      // Link to Architecture: send module_id so the Architecture tab can show
-      // where this table's code lives.
       const table = tables.find((t) => t.id === id);
       if (table?.module_id) {
         onSelectNode(table.module_id);
       }
 
-      // Highlight connected modules (FK neighbors)
+      // Highlight connected modules
       const connected = new Set<string>();
-      for (const t of tables) {
-        for (const col of t.columns) {
-          if (col.fk) {
-            if (t.id === id && col.fk) {
-              const target = tables.find((tb) => tb.id === col.fk);
-              if (target?.module_id) connected.add(target.module_id);
-            }
-            if (col.fk === id) {
-              if (t.module_id) connected.add(t.module_id);
-            }
-          }
-        }
+      const neighbors = fkNeighbors(id, tables);
+      for (const nid of neighbors) {
+        const neighbor = tables.find((t) => t.id === nid);
+        if (neighbor?.module_id) connected.add(neighbor.module_id);
       }
       if (table?.module_id) connected.add(table.module_id);
       onHighlightNodes(connected);
@@ -358,11 +715,29 @@ export function DatabaseView({
     [tables, onSelectNode, onHighlightNodes],
   );
 
+  const handleFocusER = useCallback(() => {
+    setViewMode('er');
+    setErShowAll(false);
+  }, []);
+
   const handleClosePanel = useCallback(() => {
     setLocalSelectedId(null);
     onSelectNode(null);
     onHighlightNodes(new Set());
+    // Don't exit ER mode on close — user may want to click another node
   }, [onSelectNode, onHighlightNodes]);
+
+  const handleSelectModule = useCallback(
+    (id: string) => {
+      onSelectNode(id);
+    },
+    [onSelectNode],
+  );
+
+  const totalFkCount = useMemo(
+    () => tables.reduce((s, t) => s + t.columns.filter((c) => c.fk).length, 0),
+    [tables],
+  );
 
   if (tables.length === 0) {
     return (
@@ -383,6 +758,8 @@ export function DatabaseView({
     );
   }
 
+  const panelOpen = selectedTable !== null;
+
   return (
     <div
       style={{
@@ -392,6 +769,7 @@ export function DatabaseView({
         display: 'flex',
         flexDirection: 'column',
         background: '#EEEFE9',
+        overflow: 'hidden',
       }}
     >
       {/* ── toolbar ── */}
@@ -399,19 +777,18 @@ export function DatabaseView({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 16,
-          padding: '8px 16px',
+          gap: 10,
+          padding: '8px 14px',
           background: '#FFFFFF',
           borderBottom: '1px solid #BFC1B7',
           flexShrink: 0,
           fontFamily: '"Nunito", system-ui, sans-serif',
+          flexWrap: 'wrap',
         }}
       >
-        {/* title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#151515' }}>
-            Database
-          </span>
+        {/* title + counts */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#151515' }}>Database</span>
           <span
             style={{
               fontSize: 10,
@@ -420,7 +797,6 @@ export function DatabaseView({
               background: '#E5E7E0',
               borderRadius: 4,
               padding: '2px 7px',
-              letterSpacing: '0.03em',
             }}
           >
             {tables.length} tables
@@ -433,82 +809,178 @@ export function DatabaseView({
               background: '#E5E7E0',
               borderRadius: 4,
               padding: '2px 7px',
-              letterSpacing: '0.03em',
             }}
           >
-            {tables.reduce((s, t) => s + t.columns.filter((c) => c.fk).length, 0)} FK relations
+            {totalFkCount} FK
           </span>
         </div>
 
-        {/* spacer */}
-        <div style={{ flex: 1 }} />
+        {/* search box */}
+        <div style={{ flex: 1, minWidth: 160, position: 'relative' }}>
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 13 13"
+            fill="none"
+            style={{
+              position: 'absolute',
+              left: 9,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#9B9C92',
+              pointerEvents: 'none',
+            }}
+          >
+            <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M9 9l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Filter tables or columns…"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            style={{
+              width: '100%',
+              height: 30,
+              paddingLeft: 28,
+              paddingRight: filterText ? 28 : 10,
+              background: '#EEEFE9',
+              border: '1px solid #BFC1B7',
+              borderRadius: 6,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              fontSize: 12,
+              color: '#23251D',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+          {filterText && (
+            <button
+              onClick={() => setFilterText('')}
+              style={{
+                position: 'absolute',
+                right: 7,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#9B9C92',
+                fontSize: 14,
+                padding: 0,
+                lineHeight: 1,
+              }}
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
 
-        {/* legend */}
+        {/* view mode toggle */}
         <div
           style={{
             display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            flexWrap: 'wrap',
+            border: '1px solid #BFC1B7',
+            borderRadius: 6,
+            overflow: 'hidden',
+            flexShrink: 0,
           }}
         >
-          {presentModules.map((mod) => (
-            <LegendChip
-              key={mod}
-              color={MODULE_ACCENT[mod] ?? '#9B9C92'}
-              label={MODULE_LABELS[mod] ?? mod}
-            />
+          {(['overview', 'er'] as ViewMode[]).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              style={{
+                padding: '5px 12px',
+                background: viewMode === mode ? '#F7A501' : '#FFFFFF',
+                border: 'none',
+                borderRight: mode === 'overview' ? '1px solid #BFC1B7' : 'none',
+                cursor: 'pointer',
+                fontFamily: '"Nunito", system-ui, sans-serif',
+                fontSize: 11,
+                fontWeight: 600,
+                color: viewMode === mode ? '#23251D' : '#6C6E63',
+              }}
+            >
+              {mode === 'overview' ? 'Groups' : 'ER Diagram'}
+            </button>
           ))}
-
-          {/* badge legend */}
-          <div style={{ width: 1, height: 12, background: '#E5E7E0', margin: '0 2px' }} />
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 9,
-              fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-              color: '#DC9300',
-              background: '#FEF3C7',
-              borderRadius: 3,
-              padding: '2px 5px',
-            }}
-          >
-            PK
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 9,
-              fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-              color: '#1078A3',
-              background: '#DCEAF6',
-              borderRadius: 3,
-              padding: '2px 5px',
-            }}
-          >
-            FK
-          </div>
         </div>
       </div>
 
-      {/* ── diagram canvas ── */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <ErDiagram
-          tables={tables}
-          selectedTableId={selectedTableId}
-          onSelectTable={handleSelectTable}
-        />
+      {/* ── main content area ── */}
+      <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
+        {/* left pane: overview or ER */}
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            marginRight: panelOpen ? 300 : 0,
+            transition: 'margin-right 180ms ease-out',
+          }}
+        >
+          {viewMode === 'overview' ? (
+            <OverviewMode
+              tables={tables}
+              nodes={nodes}
+              clusters={clusters}
+              accentMap={accentMap}
+              filterText={filterText}
+              selectedTableId={selectedTableId}
+              onSelectTable={(id) => handleSelectTable(id)}
+            />
+          ) : selectedTableId && viewMode === 'er' ? (
+            <ErFocusMode
+              tables={tables}
+              focusTableId={selectedTableId}
+              showAll={erShowAll}
+              onToggleShowAll={() => setErShowAll((v) => !v)}
+              onSelectTable={handleSelectTable}
+            />
+          ) : (
+            /* Full ER diagram (no table selected yet) */
+            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 12,
+                  left: 12,
+                  zIndex: 10,
+                  background: '#FFFFFF',
+                  border: '1px solid #BFC1B7',
+                  borderRadius: 6,
+                  padding: '6px 10px',
+                  fontFamily: '"Nunito", system-ui, sans-serif',
+                  fontSize: 11,
+                  color: '#6C6E63',
+                  boxShadow: '0 1px 4px rgba(21,21,21,0.10)',
+                }}
+              >
+                Click a table to focus on its relationships
+              </div>
+              <ErDiagram
+                tables={tables}
+                selectedTableId={selectedTableId}
+                onSelectTable={handleSelectTable}
+              />
+            </div>
+          )}
+        </div>
 
-        {/* info panel overlay */}
-        <TableInfoPanel
-          tableId={selectedTableId}
-          tables={tables}
-          onClose={handleClosePanel}
-        />
+        {/* right detail panel */}
+        {panelOpen && selectedTable && (
+          <TableDetailPanel
+            table={selectedTable}
+            nodes={nodes}
+            accentMap={accentMap}
+            onClose={handleClosePanel}
+            onFocusER={handleFocusER}
+            onSelectModule={handleSelectModule}
+          />
+        )}
       </div>
     </div>
   );
