@@ -2,7 +2,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
 import { spawnCli } from "./cli-spawn.js";
 import type { EnvMap } from "./shell-env.js";
-import { AgentTimeoutError } from "./agent-types.js";
+import { AgentCancelledError, AgentTimeoutError } from "./agent-types.js";
 
 export interface CliExecutionOptions {
   label: string;
@@ -14,6 +14,7 @@ export interface CliExecutionOptions {
   timeoutMs: number;
   onStdoutChunk?: (chunk: string) => void;
   onStderrChunk?: (chunk: string) => void;
+  signal?: AbortSignal;
 }
 
 export interface CliExecutionResult {
@@ -56,6 +57,8 @@ function killProcessTree(child: ChildProcessWithoutNullStreams): void {
 }
 
 export async function executeCli(options: CliExecutionOptions): Promise<CliExecutionResult> {
+  if (options.signal?.aborted) throw new AgentCancelledError(options.label);
+
   const child = spawnCli(options.command, options.args, {
     cwd: options.cwd,
     env: options.env,
@@ -66,6 +69,7 @@ export async function executeCli(options: CliExecutionOptions): Promise<CliExecu
   let exitSignal: NodeJS.Signals | null = null;
   let settled = false;
   let timeout: NodeJS.Timeout | null = null;
+  let cancelHandler: (() => void) | null = null;
 
   child.stdout.on("data", (chunk: Buffer | string) => {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -107,14 +111,23 @@ export async function executeCli(options: CliExecutionOptions): Promise<CliExecu
     }, options.timeoutMs);
   });
 
+  const cancelPromise = new Promise<never>((_, reject) => {
+    cancelHandler = () => {
+      if (!settled) killProcessTree(child);
+      reject(new AgentCancelledError(options.label));
+    };
+    options.signal?.addEventListener("abort", cancelHandler, { once: true });
+  });
+
   if (options.input !== undefined) child.stdin.end(options.input);
   else child.stdin.end();
 
   try {
-    const result = await Promise.race([closePromise, timeoutPromise]);
+    const result = await Promise.race([closePromise, timeoutPromise, cancelPromise]);
     if (result.exitCode !== 0) throw new CliExitError(options.label, result);
     return result;
   } finally {
     if (timeout) clearTimeout(timeout);
+    if (cancelHandler) options.signal?.removeEventListener("abort", cancelHandler);
   }
 }

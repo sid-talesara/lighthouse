@@ -19,6 +19,7 @@ export type AgentProgressEventType =
   | "validation"
   | "write"
   | "done"
+  | "cancelled"
   | "error"
   | "timeout";
 
@@ -36,6 +37,7 @@ export interface RunAgentOptions {
   repoPath: string;
   prompt: string;
   model?: string;
+  signal?: AbortSignal;
   onProgress?: AgentProgressHandler;
 }
 
@@ -48,5 +50,12 @@ export class AgentTimeoutError extends Error {
   constructor(agentLabel: string, timeoutMs: number) {
     super(`${agentLabel} agent timed out after ${Math.round(timeoutMs / 1000)} seconds`);
     this.name = "AgentTimeoutError";
+  }
+}
+
+export class AgentCancelledError extends Error {
+  constructor(agentLabel: string) {
+    super(`${agentLabel} agent was stopped`);
+    this.name = "AgentCancelledError";
   }
 }
