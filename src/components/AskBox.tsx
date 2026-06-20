@@ -195,6 +195,14 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
             </div>
           </div>
 
+          {result.visual_blocks.length > 0 && (
+            <div className="mt-3 grid gap-2">
+              {result.visual_blocks.slice(0, 2).map((block, index) => (
+                <VisualBlockView key={`${block.type}-${block.title}-${index}`} block={block} />
+              ))}
+            </div>
+          )}
+
           {result.query_events.length > 0 && (
             <div className="mt-3">
               <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
@@ -230,14 +238,6 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
             </div>
           )}
 
-          {result.visual_blocks.length > 0 && (
-            <div className="mt-3 grid gap-2">
-              {result.visual_blocks.slice(0, 2).map((block, index) => (
-                <VisualBlockView key={`${block.type}-${block.title}-${index}`} block={block} />
-              ))}
-            </div>
-          )}
-
           {/* Highlighted ids list */}
           <div className="mt-3 flex flex-wrap gap-1">
             {result.highlight_ids.map((id) => (
@@ -270,6 +270,56 @@ function sourceBadgeClass(source: QuerySource): string {
 }
 
 function VisualBlockView({ block }: { block: QueryVisualBlock }) {
+  if (block.type === "change_review") {
+    const before = block.items.find((item) => item.label.toLowerCase() === "before");
+    const after = block.items.find((item) => item.label.toLowerCase() === "after");
+    const rest = block.items.filter((item) => !["before", "after"].includes(item.label.toLowerCase()));
+
+    return (
+      <div className="rounded-ph-sm border border-ph-border bg-ph-canvas px-3 py-2">
+        <div className="mb-2 font-sans text-label uppercase tracking-wider text-ph-ash">
+          {block.title}
+        </div>
+        <div className="grid gap-2">
+          {(before || after) && (
+            <div className="grid grid-cols-2 gap-2">
+              {before && (
+                <div className="rounded-ph-sm border border-ph-border bg-ph-surface px-2 py-1.5">
+                  <div className="mb-1 font-sans text-[11px] font-bold uppercase tracking-wider text-ph-mute">
+                    Before
+                  </div>
+                  <div className="font-body text-label leading-snug text-ph-body">
+                    {before.value ?? before.path ?? before.nodeId ?? ''}
+                  </div>
+                </div>
+              )}
+              {after && (
+                <div className="rounded-ph-sm border border-ph-green/25 bg-ph-green-soft px-2 py-1.5">
+                  <div className="mb-1 font-sans text-[11px] font-bold uppercase tracking-wider text-ph-green">
+                    After
+                  </div>
+                  <div className="font-body text-label leading-snug text-ph-body">
+                    {after.value ?? after.path ?? after.nodeId ?? ''}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {rest.slice(0, 5).map((item, index) => (
+            <div key={`${item.label}-${index}`} className="rounded-ph-sm border border-ph-border bg-ph-surface px-2 py-1.5">
+              <div className="mb-1 font-sans text-[11px] font-bold uppercase tracking-wider text-ph-mute">
+                {item.label}
+              </div>
+              <div className="font-body text-label leading-snug text-ph-body">
+                {item.value ?? item.path ?? item.nodeId ?? ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (block.type === "diagram") {
     return (
       <div className="rounded-ph-sm border border-ph-border bg-ph-canvas px-3 py-2">

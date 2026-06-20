@@ -625,6 +625,25 @@ function FileSearchAgentResult({ result }: { result: AskResult }) {
           ))}
         </div>
       )}
+      {result.visual_blocks.some((block) => block.type === 'change_review') && (
+        <div className="grid gap-1.5">
+          {result.visual_blocks
+            .filter((block) => block.type === 'change_review')
+            .slice(0, 1)
+            .flatMap((block) =>
+              block.items.slice(0, 5).map((item, index) => (
+                <div key={`${block.title}-${item.label}-${index}`} className="grid grid-cols-[88px_minmax(0,1fr)] gap-2 rounded-ph-sm border border-ph-border bg-ph-surface px-2 py-1.5">
+                  <div className="font-sans text-[10px] font-bold uppercase tracking-wider text-ph-mute">
+                    {item.label}
+                  </div>
+                  <div className="line-clamp-3 font-body text-[11px] leading-snug text-ph-body">
+                    {item.value ?? item.path ?? item.nodeId ?? ''}
+                  </div>
+                </div>
+              )),
+            )}
+        </div>
+      )}
       {result.file_paths.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {result.file_paths.slice(0, 4).map((filePath) => (
