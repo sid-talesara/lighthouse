@@ -13,6 +13,9 @@ server/.env
 server/.env.*
 !server/.env.example
 
+# Local runtime data
+.lighthouse/
+
 # Logs
 logs/
 *.log

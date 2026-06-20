@@ -123,7 +123,7 @@ export default function App() {
           </div>
           <p className="mt-1 font-body text-body-sm text-ph-body">
             <span className="rounded-ph-sm bg-ph-surface-soft px-1.5 py-0.5 font-mono text-code text-ph-mute">
-              public/data.json
+              Lighthouse data
             </span>{' '}
             failed to load.
           </p>

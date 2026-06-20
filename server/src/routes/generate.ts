@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Response } from "express";
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z, ZodError } from "zod";
@@ -14,7 +15,8 @@ import { validateRepoPath } from "../utils/path-safety.js";
 import { LighthouseDataSchema } from "../validate/schema.js";
 
 const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
-const DATA_JSON_PATH = join(REPO_ROOT, "public", "data.json");
+const GENERATED_DATA_DIR = join(REPO_ROOT, ".lighthouse");
+const GENERATED_DATA_PATH = join(GENERATED_DATA_DIR, "data.generated.json");
 const JOB_TTL_MS = 15 * 60 * 1000;
 const MAX_JOB_EVENTS = 500;
 const STATUS_EVENT_INTERVAL_MS = 5_000;
@@ -243,10 +245,11 @@ async function runGeneration(options: {
     options.onProgress?.({
       type: "write",
       phase,
-      dataPath: DATA_JSON_PATH,
-      message: "Writing validated data file.",
+      dataPath: GENERATED_DATA_PATH,
+      message: "Writing validated generated data file.",
     });
-    writeFileAtomic(DATA_JSON_PATH, `${JSON.stringify(validated, null, 2)}\n`);
+    mkdirSync(GENERATED_DATA_DIR, { recursive: true });
+    writeFileAtomic(GENERATED_DATA_PATH, `${JSON.stringify(validated, null, 2)}\n`);
   } finally {
     clearInterval(statusTimer);
   }
@@ -286,11 +289,11 @@ function startGenerateJob(repoPath: string, model?: string): GenerateJob {
         onProgress: (event) => appendJobEvent(job, event),
       });
       job.status = "done";
-      job.dataPath = DATA_JSON_PATH;
+      job.dataPath = GENERATED_DATA_PATH;
       appendJobEvent(job, {
         type: "done",
         phase: "done",
-        dataPath: DATA_JSON_PATH,
+        dataPath: GENERATED_DATA_PATH,
         message: "Generation complete.",
       });
     } catch (error) {
@@ -359,7 +362,7 @@ async function streamGenerationResponse(
     emit({
       type: "done",
       phase: "done",
-      dataPath: DATA_JSON_PATH,
+      dataPath: GENERATED_DATA_PATH,
       message: "Generation complete.",
     });
   } catch (error) {
@@ -386,11 +389,34 @@ generateRouter.post("/generate", async (req, res) => {
     }
 
     await runGeneration({ repoPath, model });
-    res.json({ ok: true, agent: "codex", dataPath: DATA_JSON_PATH });
+    res.json({ ok: true, agent: "codex", dataPath: GENERATED_DATA_PATH });
   } catch (error) {
     const message = formatError(error);
     console.error("[companion] generate failed:", message);
     res.status(statusForError(error, message)).json({ error: message });
+  }
+});
+
+generateRouter.get("/data", (_req, res) => {
+  if (!existsSync(GENERATED_DATA_PATH)) {
+    res.status(404).json({
+      error: "Generated data has not been created yet. Run Generate to create local analysis data.",
+    });
+    return;
+  }
+
+  try {
+    const raw = readFileSync(GENERATED_DATA_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const validated = LighthouseDataSchema.parse(parsed);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(validated);
+  } catch (error) {
+    const message = formatError(error);
+    res.status(500).json({
+      generatedData: true,
+      error: `Generated data is invalid: ${message}`,
+    });
   }
 });
 
