@@ -51,6 +51,56 @@ const FileInventoryEntrySchema = z.object({
   size_bytes: z.number().int().nonnegative(),
 });
 
+// ── New additive dimensions ───────────────────────────────────────────────────
+
+const PullRequestStatus = z.enum(["merged", "open", "draft"]);
+const ChangeKind = z.enum(["added", "modified", "removed"]);
+
+const PullRequestTouchSchema = z.object({
+  node_id: NonEmptyString,
+  change: ChangeKind,
+});
+
+const PullRequestSchema = z.object({
+  id: NonEmptyString,
+  title: NonEmptyString,
+  author: NonEmptyString,
+  date: NonEmptyString,
+  status: PullRequestStatus,
+  summary: z.string(),
+  touched: z.array(PullRequestTouchSchema),
+  additions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional(),
+});
+
+const DbColumnSchema = z.object({
+  name: NonEmptyString,
+  type: NonEmptyString,
+  pk: z.boolean().optional(),
+  fk: z.string().optional(),
+});
+
+const DbTableSchema = z.object({
+  id: NonEmptyString,
+  name: NonEmptyString,
+  module_id: z.string().optional(),
+  columns: z.array(DbColumnSchema),
+  summary: z.string().optional(),
+});
+
+const FunctionNodeSchema = z.object({
+  id: NonEmptyString,
+  name: NonEmptyString,
+  module_id: NonEmptyString,
+  signature: z.string().optional(),
+  summary: z.string().optional(),
+});
+
+const CallEdgeSchema = z.object({
+  from: NonEmptyString,
+  to: NonEmptyString,
+});
+
 function addDuplicateIssues(
   ctx: z.RefinementCtx,
   values: string[],
@@ -84,6 +134,10 @@ export const LighthouseDataSchema = z
     flows: z.array(FlowSchema),
     sections: z.array(SectionSchema),
     files: z.array(FileInventoryEntrySchema).optional(),
+    pullRequests: z.array(PullRequestSchema).optional(),
+    dbTables: z.array(DbTableSchema).optional(),
+    functions: z.array(FunctionNodeSchema).optional(),
+    calls: z.array(CallEdgeSchema).optional(),
   })
   .superRefine((data, ctx) => {
     const clusterIds = new Set(data.clusters.map((cluster) => cluster.id));
