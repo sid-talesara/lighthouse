@@ -69,7 +69,7 @@ export interface FlowPlayerProps {
   forcedStepIndex?: number;
 }
 
-const PLAY_INTERVAL_MS = 2200;
+const PLAY_INTERVAL_MS = 900;
 
 // ─── Step state helpers ──────────────────────────────────────────────────────
 
@@ -116,28 +116,43 @@ export function FlowPlayer({ flow, nodeMap, onStepChange, forcedStepIndex }: Flo
   }, [activeIndex, flow]);
 
   // ── Auto-play interval ────────────────────────────────────────────────────
+  // Use a ref to track totalSteps inside the interval callback without
+  // re-creating the interval on every render.
+  const totalStepsRef = useRef(totalSteps);
+  useEffect(() => { totalStepsRef.current = totalSteps; }, [totalSteps]);
+
   useEffect(() => {
-    if (isPlaying) {
-      intervalRef.current = setInterval(() => {
-        setActiveIndex((prev) => {
-          if (prev >= totalSteps - 1) {
-            // Reached end — stop player, stay at last step
-            setIsPlaying(false);
-            return prev;
+    // Clear any existing interval first
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    if (!isPlaying) return;
+
+    intervalRef.current = setInterval(() => {
+      setActiveIndex((prev) => {
+        const next = prev + 1;
+        if (next >= totalStepsRef.current) {
+          // Reached last step — clear interval and stop, stay on last step
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
           }
-          return prev + 1;
-        });
-      }, PLAY_INTERVAL_MS);
-    } else {
+          setIsPlaying(false);
+          return prev; // stay on last step; keeps highlight
+        }
+        return next;
+      });
+    }, PLAY_INTERVAL_MS);
+
+    return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isPlaying, totalSteps]);
+  }, [isPlaying]);
 
   // ── Controls ──────────────────────────────────────────────────────────────
   const goToPrev = useCallback(() => {
@@ -402,10 +417,11 @@ export function FlowPlayer({ flow, nodeMap, onStepChange, forcedStepIndex }: Flo
                   flex: 1,
                   borderRadius: 6,
                   border: isActive ? '1.5px solid #F7A501' : '1px solid #BFC1B7',
-                  background: '#FFFFFF',
+                  borderLeft: isActive ? '3px solid #F7A501' : isPast ? '3px solid #BFC1B7' : '3px solid #E5E7E0',
+                  background: isActive ? 'rgba(247,165,1,0.06)' : '#FFFFFF',
                   padding: '12px 14px',
                   transition:
-                    'border-color 200ms ease-out, box-shadow 200ms ease-out, transform 200ms ease-out',
+                    'border-color 200ms ease-out, background 200ms ease-out, box-shadow 200ms ease-out, transform 200ms ease-out',
                   boxShadow: isActive
                     ? '0 0 0 3px rgba(247,165,1,0.15)'
                     : 'none',
