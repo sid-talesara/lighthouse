@@ -1,8 +1,11 @@
 import { Router } from "express";
-import { fileURLToPath } from "node:url";
+import type { Response } from "express";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z, ZodError } from "zod";
 
+import type { AgentProgressEventType } from "../agent/agent-types.js";
 import { AgentTimeoutError } from "../agent/agent-types.js";
 import { buildAnalysisPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
@@ -12,6 +15,9 @@ import { LighthouseDataSchema } from "../validate/schema.js";
 
 const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const DATA_JSON_PATH = join(REPO_ROOT, "public", "data.json");
+const JOB_TTL_MS = 15 * 60 * 1000;
+const MAX_JOB_EVENTS = 500;
+const STATUS_EVENT_INTERVAL_MS = 5_000;
 
 export const generateRouter = Router();
 
@@ -34,6 +40,43 @@ const GenerateRequestSchema = z.object({
   repoPath: z.unknown(),
   model: OptionalModelSchema,
 });
+
+type GenerateJobStatus = "queued" | "running" | "done" | "error" | "timeout";
+
+interface GenerateProgressInput {
+  type: AgentProgressEventType;
+  message: string;
+  codexType?: string;
+  elapsedMs?: number;
+  phase?: string;
+  dataPath?: string;
+  error?: string;
+}
+
+interface GenerateJobEvent {
+  id: number;
+  type: AgentProgressEventType;
+  phase: string;
+  message: string;
+  at: string;
+  elapsedMs: number;
+  codexType?: string;
+  dataPath?: string;
+  error?: string;
+}
+
+interface GenerateJob {
+  id: string;
+  status: GenerateJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAtMs: number;
+  events: GenerateJobEvent[];
+  error?: string;
+  dataPath?: string;
+}
+
+const jobs = new Map<string, GenerateJob>();
 
 function extractJson(raw: string): string {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]+?)```/);
@@ -81,24 +124,365 @@ function parseGenerateRequest(body: unknown): {
   };
 }
 
-generateRouter.post("/generate", async (req, res) => {
+function wantsEventStream(req: { header(name: string): string | undefined; query: Record<string, unknown> }): boolean {
+  const accept = req.header("accept") ?? "";
+  const acceptsSse = accept.split(",").some((value) => value.trim().startsWith("text/event-stream"));
+  return acceptsSse || req.query.stream === "1" || req.query.stream === "true";
+}
+
+function sanitizeMessage(message: string, maxLength = 1_200): string {
+  const redacted = message.replace(
+    /\b(api[_-]?key|authorization|bearer|password|secret|token)\b\s*[:=]\s*("[^"]+"|'[^']+'|\S+)/gi,
+    "$1=[redacted]",
+  );
+  const compact = redacted.replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLength) return compact;
+  return `${compact.slice(0, maxLength - 1)}...`;
+}
+
+function phaseForProgress(type: AgentProgressEventType, codexType?: string): string {
+  if (type === "codex") {
+    const normalized = codexType?.toLowerCase() ?? "";
+    if (normalized.includes("reason")) return "reasoning";
+    if (normalized.includes("message") || normalized.includes("response")) return "model";
+    if (normalized.includes("error")) return "error";
+    return "status";
+  }
+
+  if (type === "stdout" || type === "stderr") return "log";
+  return type;
+}
+
+function appendJobEvent(
+  job: GenerateJob,
+  event: GenerateProgressInput,
+): GenerateJobEvent {
+  const at = new Date().toISOString();
+  const next: GenerateJobEvent = {
+    id: job.events.length === 0 ? 1 : job.events[job.events.length - 1].id + 1,
+    type: event.type,
+    phase: event.phase ?? phaseForProgress(event.type, event.codexType),
+    message: sanitizeMessage(event.message),
+    at,
+    elapsedMs: event.elapsedMs ?? Date.now() - job.startedAtMs,
+    codexType: event.codexType,
+    dataPath: event.dataPath,
+    error: event.error,
+  };
+
+  job.events.push(next);
+  if (job.events.length > MAX_JOB_EVENTS) job.events.splice(0, job.events.length - MAX_JOB_EVENTS);
+  job.updatedAt = at;
+  return next;
+}
+
+function cleanupJobs(): void {
+  const now = Date.now();
+  for (const [jobId, job] of jobs) {
+    if (now - Date.parse(job.updatedAt) > JOB_TTL_MS) jobs.delete(jobId);
+  }
+}
+
+function writeSseEvent(res: Response, eventName: string, data: unknown): void {
+  const record = data && typeof data === "object" ? (data as { id?: unknown }) : null;
+  if (typeof record?.id === "number") {
+    res.write(`id: ${record.id}\n`);
+  }
+  res.write(`event: ${eventName}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+async function runGeneration(options: {
+  repoPath: string;
+  model?: string;
+  onProgress?: (event: GenerateProgressInput) => void;
+}): Promise<void> {
+  const startedAtMs = Date.now();
+  let phase = "command";
+  const statusTimer = setInterval(() => {
+    options.onProgress?.({
+      type: "status",
+      phase,
+      message: `Generate is still ${phase}.`,
+      elapsedMs: Date.now() - startedAtMs,
+    });
+  }, STATUS_EVENT_INTERVAL_MS);
+
+  options.onProgress?.({
+    type: "command",
+    phase: "command",
+    message: "Launching Codex CLI in JSON mode.",
+  });
+
   try {
-    const { repoPath, model } = parseGenerateRequest(req.body);
     const rawResult = await runAgent({
-      repoPath,
-      model,
+      repoPath: options.repoPath,
+      model: options.model,
       prompt: buildAnalysisPrompt(),
+      onProgress: (event) => {
+        options.onProgress?.({
+          type: event.type,
+          message: event.message,
+          elapsedMs: event.elapsedMs,
+          codexType: event.codexType,
+        });
+      },
+    });
+
+    phase = "validation";
+    options.onProgress?.({
+      type: "validation",
+      phase,
+      message: "Extracting and validating Lighthouse JSON.",
     });
     const jsonText = extractJson(rawResult);
     const parsed = JSON.parse(jsonText);
     const validated = LighthouseDataSchema.parse(parsed);
 
+    phase = "write";
+    options.onProgress?.({
+      type: "write",
+      phase,
+      dataPath: DATA_JSON_PATH,
+      message: "Writing validated data file.",
+    });
     writeFileAtomic(DATA_JSON_PATH, `${JSON.stringify(validated, null, 2)}\n`);
+  } finally {
+    clearInterval(statusTimer);
+  }
+}
 
+function startGenerateJob(repoPath: string, model?: string): GenerateJob {
+  cleanupJobs();
+
+  const now = new Date().toISOString();
+  const job: GenerateJob = {
+    id: randomUUID(),
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+    startedAtMs: Date.now(),
+    events: [],
+  };
+  jobs.set(job.id, job);
+  appendJobEvent(job, {
+    type: "queued",
+    phase: "queued",
+    message: "Generation job queued.",
+  });
+
+  void (async () => {
+    job.status = "running";
+    appendJobEvent(job, {
+      type: "starting",
+      phase: "starting",
+      message: "Generation job started.",
+    });
+
+    try {
+      await runGeneration({
+        repoPath,
+        model,
+        onProgress: (event) => appendJobEvent(job, event),
+      });
+      job.status = "done";
+      job.dataPath = DATA_JSON_PATH;
+      appendJobEvent(job, {
+        type: "done",
+        phase: "done",
+        dataPath: DATA_JSON_PATH,
+        message: "Generation complete.",
+      });
+    } catch (error) {
+      const message = formatError(error);
+      job.status = error instanceof AgentTimeoutError ? "timeout" : "error";
+      job.error = message;
+      appendJobEvent(job, {
+        type: error instanceof AgentTimeoutError ? "timeout" : "error",
+        phase: error instanceof AgentTimeoutError ? "timeout" : "error",
+        error: message,
+        message,
+      });
+      console.error("[companion] generate job failed:", message);
+    }
+  })();
+
+  return job;
+}
+
+async function streamGenerationResponse(
+  res: Response,
+  options: { repoPath: string; model?: string },
+): Promise<void> {
+  const streamId = randomUUID();
+  const startedAtMs = Date.now();
+  let nextEventId = 1;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders?.();
+
+  const emit = (event: GenerateProgressInput) => {
+    const eventId = nextEventId;
+    nextEventId += 1;
+    const payload = {
+      id: eventId,
+      jobId: streamId,
+      type: event.type,
+      phase: event.phase ?? phaseForProgress(event.type, event.codexType),
+      message: sanitizeMessage(event.message),
+      at: new Date().toISOString(),
+      elapsedMs: event.elapsedMs ?? Date.now() - startedAtMs,
+      codexType: event.codexType,
+      dataPath: event.dataPath,
+      error: event.error,
+    };
+    writeSseEvent(res, event.type, payload);
+  };
+
+  emit({
+    type: "starting",
+    phase: "starting",
+    message: "Streaming generation started.",
+  });
+
+  try {
+    await runGeneration({
+      repoPath: options.repoPath,
+      model: options.model,
+      onProgress: emit,
+    });
+    emit({
+      type: "done",
+      phase: "done",
+      dataPath: DATA_JSON_PATH,
+      message: "Generation complete.",
+    });
+  } catch (error) {
+    const message = formatError(error);
+    const timedOut = error instanceof AgentTimeoutError;
+    emit({
+      type: timedOut ? "timeout" : "error",
+      phase: timedOut ? "timeout" : "error",
+      error: message,
+      message,
+    });
+    console.error("[companion] generate stream failed:", message);
+  } finally {
+    res.end();
+  }
+}
+
+generateRouter.post("/generate", async (req, res) => {
+  try {
+    const { repoPath, model } = parseGenerateRequest(req.body);
+    if (wantsEventStream(req)) {
+      await streamGenerationResponse(res, { repoPath, model });
+      return;
+    }
+
+    await runGeneration({ repoPath, model });
     res.json({ ok: true, agent: "codex", dataPath: DATA_JSON_PATH });
   } catch (error) {
     const message = formatError(error);
     console.error("[companion] generate failed:", message);
     res.status(statusForError(error, message)).json({ error: message });
   }
+});
+
+generateRouter.post("/generate/jobs", (req, res) => {
+  try {
+    const { repoPath, model } = parseGenerateRequest(req.body);
+    const job = startGenerateJob(repoPath, model);
+    res.status(202).json({
+      ok: true,
+      jobId: job.id,
+      status: job.status,
+      eventsUrl: `/api/generate/jobs/${job.id}/events`,
+      statusUrl: `/api/generate/jobs/${job.id}`,
+    });
+  } catch (error) {
+    const message = formatError(error);
+    res.status(statusForError(error, message)).json({ error: message });
+  }
+});
+
+generateRouter.get("/generate/jobs/:jobId", (req, res) => {
+  cleanupJobs();
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: "Generation job not found or expired." });
+    return;
+  }
+
+  res.json({
+    ok: true,
+    jobId: job.id,
+    status: job.status,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    dataPath: job.dataPath,
+    error: job.error,
+    events: job.events,
+  });
+});
+
+generateRouter.get("/generate/jobs/:jobId/events", (req, res) => {
+  cleanupJobs();
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: "Generation job not found or expired." });
+    return;
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders?.();
+
+  writeSseEvent(res, "snapshot", {
+    jobId: job.id,
+    status: job.status,
+    dataPath: job.dataPath,
+    error: job.error,
+    events: job.events,
+  });
+
+  let lastEventId = job.events.at(-1)?.id ?? 0;
+  const interval = setInterval(() => {
+    const currentJob = jobs.get(job.id);
+    if (!currentJob) {
+      writeSseEvent(res, "error", { error: "Generation job expired." });
+      res.end();
+      return;
+    }
+
+    for (const event of currentJob.events) {
+      if (event.id > lastEventId) {
+        writeSseEvent(res, "progress", event);
+        lastEventId = event.id;
+      }
+    }
+
+    if (currentJob.status === "done" || currentJob.status === "error" || currentJob.status === "timeout") {
+      writeSseEvent(res, currentJob.status, {
+        jobId: currentJob.id,
+        status: currentJob.status,
+        dataPath: currentJob.dataPath,
+        error: currentJob.error,
+      });
+      res.end();
+    }
+  }, 500);
+
+  req.on("close", () => {
+    clearInterval(interval);
+  });
 });

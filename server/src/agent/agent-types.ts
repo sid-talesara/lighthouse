@@ -4,10 +4,39 @@ export const DEFAULT_CODEX_REASONING_EFFORT = "medium";
 
 export type AgentKind = "codex";
 
+export type AgentProgressEventType =
+  | "queued"
+  | "starting"
+  | "command"
+  | "preflight"
+  | "model"
+  | "reasoning"
+  | "status"
+  | "log"
+  | "stdout"
+  | "stderr"
+  | "codex"
+  | "validation"
+  | "write"
+  | "done"
+  | "error"
+  | "timeout";
+
+export interface AgentProgressEvent {
+  type: AgentProgressEventType;
+  message: string;
+  elapsedMs: number;
+  at: string;
+  codexType?: string;
+}
+
+export type AgentProgressHandler = (event: AgentProgressEvent) => void;
+
 export interface RunAgentOptions {
   repoPath: string;
   prompt: string;
   model?: string;
+  onProgress?: AgentProgressHandler;
 }
 
 export interface AgentRunner {

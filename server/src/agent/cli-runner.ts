@@ -12,6 +12,8 @@ export interface CliExecutionOptions {
   env: EnvMap;
   input?: string;
   timeoutMs: number;
+  onStdoutChunk?: (chunk: string) => void;
+  onStderrChunk?: (chunk: string) => void;
 }
 
 export interface CliExecutionResult {
@@ -66,12 +68,15 @@ export async function executeCli(options: CliExecutionOptions): Promise<CliExecu
   let timeout: NodeJS.Timeout | null = null;
 
   child.stdout.on("data", (chunk: Buffer | string) => {
-    stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    stdoutChunks.push(buffer);
+    options.onStdoutChunk?.(buffer.toString("utf8"));
   });
   child.stderr.on("data", (chunk: Buffer | string) => {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     stderrChunks.push(buffer);
     const text = buffer.toString("utf8").trim();
+    options.onStderrChunk?.(buffer.toString("utf8"));
     if (text) console.warn(`[companion:${options.label}] ${text}`);
   });
   child.stdin.on("error", (error) => {
