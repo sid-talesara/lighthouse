@@ -6,7 +6,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -17,37 +17,53 @@ body,
 
 body {
   margin: 0;
-  background: #070b12;
-  color: #d4dde9;
-  font-family: 'Inter', system-ui, sans-serif;
+  background: #eeefe9; /* PostHog tan canvas */
+  color: #4d4f46;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* ── Canvas atmosphere ──────────────────────────────────────────────
-   A deep navy chart with a faint beacon glow drifting from upper-left,
-   plus a teal undertow lower-right, so nodes read as lit instruments
-   on dark water. */
-.lh-canvas {
-  background:
-    radial-gradient(
-      1100px 760px at 18% -8%,
-      rgba(242, 185, 104, 0.07),
-      transparent 60%
-    ),
-    radial-gradient(
-      900px 900px at 110% 120%,
-      rgba(62, 143, 137, 0.06),
-      transparent 60%
-    ),
-    #070b12;
+/* ── PostHog-style React Flow overrides (light) ────────────────────── */
+.react-flow {
+  --xy-node-background-color-default: #ffffff;
+  --xy-node-border-default: 1px solid #bfc1b7;
+  --xy-node-boxshadow-hover-default: none;
+  --xy-node-boxshadow-selected-default: 0 0 0 3px rgba(44, 132, 224, 0.2);
+  --xy-edge-stroke-default: #bfc1b7;
+  --xy-edge-stroke-width-default: 1.5;
+  --xy-edge-stroke-selected-default: #2c84e0;
+  --xy-handle-background-color-default: #bfc1b7;
+  --xy-handle-border-color-default: #ffffff;
+  --xy-background-color-default: #e8e9e2;
+  --xy-minimap-background-color-default: #e8e9e2;
+  --xy-controls-button-background-color-default: #ffffff;
+  --xy-controls-button-border-color-default: #bfc1b7;
+  --xy-controls-button-color-default: #4d4f46;
+  --xy-controls-button-background-color-hover-default: #e5e7e0;
 }
 
-/* React Flow surface should be transparent so .lh-canvas shows through */
-.react-flow,
-.react-flow__renderer,
+.dark .react-flow {
+  --xy-node-background-color-default: #23251d;
+  --xy-node-border-default: 1px solid #4b4b4b;
+  --xy-edge-stroke-default: #4b4b4b;
+  --xy-handle-background-color-default: #4b4b4b;
+  --xy-handle-border-color-default: #23251d;
+  --xy-background-color-default: #0f1109;
+  --xy-minimap-background-color-default: #151515;
+  --xy-controls-button-background-color-default: #23251d;
+  --xy-controls-button-border-color-default: #4b4b4b;
+  --xy-controls-button-color-default: #c4c5bc;
+  --xy-controls-button-background-color-hover-default: #2c2c2c;
+}
+
+/* Canvas surface — slightly darker than the cream app bg so white node
+   cards "pop" without shadows. */
+.lh-canvas {
+  background: #e8e9e2;
+}
 .react-flow__pane {
-  background: transparent !important;
+  background: transparent;
 }
 
 /* Quiet the default attribution */
@@ -55,43 +71,92 @@ body {
   background: transparent !important;
 }
 .react-flow__attribution a {
-  color: #33425a;
+  color: #9b9c92;
 }
 
-/* Edges: keep them quiet relative to nodes */
+/* Edges */
 .react-flow__edge-path {
   stroke-linecap: round;
 }
 
-/* Controls — restyle to the instrument palette */
+/* Node entrance animation */
+@keyframes nodeEntrance {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.react-flow__node {
+  animation: nodeEntrance 200ms ease-out both;
+}
+.react-flow__node:hover {
+  z-index: 10;
+}
+
+/* Edge glow on selection */
+.react-flow__edge.selected .react-flow__edge-path {
+  filter: drop-shadow(0 0 4px rgba(44, 132, 224, 0.5));
+}
+
+/* Animated edge dash for active paths */
+@keyframes dashdraw {
+  to {
+    stroke-dashoffset: -9;
+  }
+}
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 6 3;
+  animation: dashdraw 0.6s linear infinite;
+}
+
+/* Controls — PostHog flat style */
 .react-flow__controls {
-  border-radius: 10px;
+  box-shadow: none;
+  border: 1px solid #bfc1b7;
+  border-radius: 6px;
   overflow: hidden;
-  border: 1px solid rgba(124, 141, 165, 0.16);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-  background: rgba(10, 16, 25, 0.9);
-  backdrop-filter: blur(6px);
+}
+.dark .react-flow__controls {
+  border-color: #4b4b4b;
 }
 .react-flow__controls-button {
-  background: transparent;
-  border-bottom: 1px solid rgba(124, 141, 165, 0.12);
-  color: #a6b6cc;
+  box-shadow: none;
+  border-bottom: 1px solid #bfc1b7;
+  background: #ffffff;
+  color: #4d4f46;
   width: 30px;
   height: 30px;
 }
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
 .react-flow__controls-button:hover {
-  background: rgba(242, 185, 104, 0.12);
-  color: #f2b968;
+  background: #e5e7e0;
 }
 .react-flow__controls-button svg {
   fill: currentColor;
 }
+.dark .react-flow__controls-button {
+  border-bottom-color: #4b4b4b;
+  background: #23251d;
+  color: #c4c5bc;
+}
+.dark .react-flow__controls-button:hover {
+  background: #2c2c2c;
+}
 
-/* MiniMap */
+/* MiniMap — match card style */
 .react-flow__minimap {
-  border-radius: 10px;
-  border: 1px solid rgba(124, 141, 165, 0.16);
+  border-radius: 6px;
+  border: 1px solid #bfc1b7;
   overflow: hidden;
+}
+.dark .react-flow__minimap {
+  border-color: #4b4b4b;
 }
 
 /* Handles are structural only — keep them invisible */
@@ -100,21 +165,11 @@ body {
   pointer-events: none;
 }
 
-/* ── Reading panel prose ────────────────────────────────────────────
+/* ── Reading panel prose ─────────────────────────────────────────────
    Calm, legible markdown body. Avoids @tailwindcss/typography dependency. */
-.prose-lh {
-  /* Inherit the panel's ambient type settings */
-}
 .prose-lh p,
 .prose-lh li {
-  /* Already set per-element in ReactMarkdown components — these are fallbacks */
-}
-
-/* ── Section highlight pulse ────────────────────────────────────────
-   Gentle amber glow on sections linked to the selected map node. */
-@keyframes sectionGlow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 185, 104, 0); }
-  40%       { box-shadow: 0 0 0 4px rgba(242, 185, 104, 0.12), 0 0 20px 2px rgba(242, 185, 104, 0.08); }
+  /* Set per-element in ReactMarkdown components — these are fallbacks */
 }
 
 /* Thin custom scrollbars for panels */
@@ -126,12 +181,12 @@ body {
   background: transparent;
 }
 .lh-scroll::-webkit-scrollbar-thumb {
-  background: rgba(124, 141, 165, 0.22);
+  background: rgba(155, 156, 146, 0.4);
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 .lh-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(124, 141, 165, 0.4);
+  background: rgba(155, 156, 146, 0.6);
   background-clip: content-box;
 }
