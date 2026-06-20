@@ -10,6 +10,8 @@ export type GenerateEventType = 'status' | 'stdout' | 'stderr' | 'codex' | 'clie
 
 const GENERATE_REQUEST_TIMEOUT_MS = 6 * 60 * 1000;
 const MAX_EVENT_LOG_ENTRIES = 40;
+const EVENT_STREAM_STATUS_CHECK_ATTEMPTS = 3;
+const EVENT_STREAM_STATUS_CHECK_DELAY_MS = 750;
 const GENERATE_JOBS_ENDPOINT = '/api/generate/jobs';
 const LEGACY_GENERATE_ENDPOINT = '/api/generate';
 
@@ -26,6 +28,8 @@ interface GenerateSuccessResponse {
   eventsUrl?: string;
   statusUrl?: string;
 }
+
+type GenerateJobStatus = 'queued' | 'running' | 'done' | 'error' | 'timeout';
 
 interface GenerateRequestOptions {
   repoPath: string;
@@ -47,7 +51,7 @@ export interface GenerateEventLogEntry {
 }
 
 interface IncomingGenerateEvent {
-  id?: string;
+  id?: string | number;
   type?: string;
   phase?: string;
   message?: string;
@@ -59,9 +63,14 @@ interface IncomingGenerateEvent {
 
 interface GenerateSnapshotEvent {
   jobId?: string;
-  status?: string;
+  status?: GenerateJobStatus;
   error?: string | null;
   events?: IncomingGenerateEvent[];
+}
+
+interface GenerateJobStatusResponse extends GenerateSnapshotEvent {
+  ok?: boolean;
+  dataPath?: string;
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -136,6 +145,23 @@ function normalizeEventType(type: string | undefined): GenerateEventType {
   return 'codex';
 }
 
+function getGenerateJobStatusUrl(body: GenerateSuccessResponse): string | null {
+  return (
+    body.statusUrl ||
+    (body.jobId ? `/api/generate/jobs/${encodeURIComponent(body.jobId)}` : null)
+  );
+}
+
+function isTerminalJobStatus(status: string | undefined): status is 'done' | 'error' | 'timeout' {
+  return status === 'done' || status === 'error' || status === 'timeout';
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 export function useGenerate(onDone: () => void) {
   const [status, setStatus] = useState<GenerateStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -178,6 +204,7 @@ export function useGenerate(onDone: () => void) {
       const eventsUrl =
         body.eventsUrl ||
         (body.jobId ? `/api/generate/jobs/${encodeURIComponent(body.jobId)}/events` : null);
+      const statusUrl = getGenerateJobStatusUrl(body);
 
       if (!eventsUrl) return Promise.resolve();
 
@@ -190,7 +217,12 @@ export function useGenerate(onDone: () => void) {
 
       return new Promise((resolve, reject) => {
         const eventSource = new EventSource(eventsUrl);
+        const seenEventIds = new Set<string>();
+        let settled = false;
+        let checkingStatus = false;
         const timeout = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
           eventSource.close();
           reject(new Error('Generate event stream timed out locally after 6 minutes.'));
         }, GENERATE_REQUEST_TIMEOUT_MS);
@@ -200,10 +232,28 @@ export function useGenerate(onDone: () => void) {
           eventSource.close();
         };
 
+        const finishDone = () => {
+          if (settled) return;
+          settled = true;
+          close();
+          resolve();
+        };
+
+        const finishError = (message: string) => {
+          if (settled) return;
+          settled = true;
+          close();
+          reject(new Error(message));
+        };
+
         const appendIncomingEvent = (incoming: IncomingGenerateEvent) => {
+          const eventId = incoming.id === undefined ? undefined : String(incoming.id);
+          if (eventId && seenEventIds.has(eventId)) return;
+          if (eventId) seenEventIds.add(eventId);
+
           const type = normalizeEventType(incoming.type);
           appendEvent({
-            id: incoming.id,
+            id: eventId,
             type,
             message: incoming.message || incoming.phase || incoming.codexType || type,
             elapsedMs:
@@ -215,7 +265,92 @@ export function useGenerate(onDone: () => void) {
           });
         };
 
+        const handleTerminalStatus = (
+          statusValue: string | undefined,
+          errorMessage?: string | null
+        ): boolean => {
+          if (!isTerminalJobStatus(statusValue)) return false;
+
+          if (statusValue === 'done') {
+            finishDone();
+            return true;
+          }
+
+          finishError(
+            errorMessage ||
+              (statusValue === 'timeout'
+                ? 'Generate timed out.'
+                : 'Generate failed.')
+          );
+          return true;
+        };
+
+        const checkJobStatusAfterStreamError = async () => {
+          if (settled || checkingStatus) return;
+          checkingStatus = true;
+
+          appendEvent({
+            type: 'client',
+            message: statusUrl
+              ? 'Event stream interrupted; checking generation status'
+              : 'Event stream interrupted; waiting for reconnect',
+            elapsedMs: Date.now() - requestStartedAt,
+            at: new Date().toISOString(),
+          });
+
+          if (!statusUrl) {
+            checkingStatus = false;
+            return;
+          }
+
+          let lastError: Error | null = null;
+          for (let attempt = 1; attempt <= EVENT_STREAM_STATUS_CHECK_ATTEMPTS; attempt += 1) {
+            if (settled) return;
+
+            try {
+              const response = await fetch(statusUrl, {
+                headers: { Accept: 'application/json' },
+              });
+
+              if (!response.ok) {
+                throw new Error(await readErrorMessage(response));
+              }
+
+              const snapshot = (await response.json()) as GenerateJobStatusResponse;
+              snapshot.events?.forEach(appendIncomingEvent);
+
+              if (handleTerminalStatus(snapshot.status, snapshot.error)) return;
+
+              appendEvent({
+                type: 'client',
+                message: `Generation is still ${snapshot.status || 'running'}; waiting for events`,
+                elapsedMs: Date.now() - requestStartedAt,
+                at: new Date().toISOString(),
+              });
+              checkingStatus = false;
+              return;
+            } catch (error) {
+              lastError = error instanceof Error ? error : new Error(String(error));
+              if (attempt < EVENT_STREAM_STATUS_CHECK_ATTEMPTS) {
+                await wait(EVENT_STREAM_STATUS_CHECK_DELAY_MS);
+              }
+            }
+          }
+
+          checkingStatus = false;
+          if (!settled && lastError) {
+            appendEvent({
+              type: 'client',
+              message: `Unable to confirm generation status: ${lastError.message}`,
+              elapsedMs: Date.now() - requestStartedAt,
+              at: new Date().toISOString(),
+            });
+          }
+        };
+
         const handleProgressMessage = (event: MessageEvent<string>) => {
+          if (settled) return;
+
           try {
             const parsed = JSON.parse(event.data) as IncomingGenerateEvent | GenerateSnapshotEvent;
             const eventType = event.type === 'message' ? (parsed as IncomingGenerateEvent).type : event.type;
@@ -224,10 +359,7 @@ export function useGenerate(onDone: () => void) {
               const snapshot = parsed as GenerateSnapshotEvent;
               snapshot.events?.forEach(appendIncomingEvent);
 
-              if (snapshot.error) {
-                close();
-                reject(new Error(snapshot.error));
-              }
+              handleTerminalStatus(snapshot.status, snapshot.error);
               return;
             }
 
@@ -237,15 +369,17 @@ export function useGenerate(onDone: () => void) {
             }
 
             if (eventType === 'done') {
-              close();
-              resolve();
+              finishDone();
               return;
             }
 
-            if (eventType === 'error') {
-              close();
+            if (eventType === 'error' || eventType === 'timeout') {
               const errorPayload = parsed as IncomingGenerateEvent;
-              reject(new Error(errorPayload.error || errorPayload.message || 'Generate failed.'));
+              finishError(
+                errorPayload.error ||
+                  errorPayload.message ||
+                  (eventType === 'timeout' ? 'Generate timed out.' : 'Generate failed.')
+              );
               return;
             }
 
@@ -271,14 +405,14 @@ export function useGenerate(onDone: () => void) {
         eventSource.addEventListener('snapshot', handleProgressMessage);
         eventSource.addEventListener('progress', handleProgressMessage);
         eventSource.addEventListener('done', handleProgressMessage);
+        eventSource.addEventListener('timeout', handleProgressMessage);
         eventSource.addEventListener('error', (event) => {
           if (event instanceof MessageEvent && event.data) {
             handleProgressMessage(event as MessageEvent<string>);
             return;
           }
 
-          close();
-          reject(new Error('Generate event stream disconnected.'));
+          void checkJobStatusAfterStreamError();
         });
       });
     },
