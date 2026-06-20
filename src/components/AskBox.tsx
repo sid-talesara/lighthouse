@@ -7,42 +7,58 @@ import ReactMarkdown from "react-markdown";
 import type { LighthouseData } from "../types/lighthouse";
 import { askMap, type AskResult } from "../lib/ask";
 import { DEMO_QUESTIONS } from "../lib/askCache";
+import type { GenerateModel } from "../lib/generateOptions";
+import type { QuerySource, QueryVisualBlock } from "../types/query";
 
 interface AskBoxProps {
   data: LighthouseData;
+  repoPath?: string;
+  model?: GenerateModel;
   onAnswer: (ids: Set<string>) => void;
   onClear: () => void;
 }
 
-export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
+export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps) {
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<AskResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const hasKey = Boolean(import.meta.env.VITE_ANTHROPIC_API_KEY);
+  const abortRef = useRef<AbortController | null>(null);
 
   const submit = useCallback(
-    async (q: string) => {
+    async (q: string, allowDemoCache = false) => {
       const trimmed = q.trim();
       if (!trimmed) return;
 
       setLoading(true);
       setError(null);
       setResult(null);
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
 
       try {
-        const ans = await askMap(trimmed, data);
+        const ans = await askMap(trimmed, data, {
+          allowDemoCache,
+          repoPath,
+          model,
+          signal: controller.signal,
+        });
         setResult(ans);
         onAnswer(new Set(ans.highlight_ids));
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        if (e instanceof DOMException && e.name === "AbortError") {
+          setError("Query stopped.");
+        } else {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       } finally {
+        if (abortRef.current === controller) abortRef.current = null;
         setLoading(false);
       }
     },
-    [data, onAnswer]
+    [data, model, onAnswer, repoPath]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -52,10 +68,12 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
 
   const handleChip = (q: string) => {
     setQuestion(q);
-    void submit(q);
+    void submit(q, true);
   };
 
   const handleClear = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
     setQuestion("");
     setResult(null);
     setError(null);
@@ -79,11 +97,7 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
           type="text"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder={
-            hasKey
-              ? "Ask it anything — it reads the whole map…"
-              : "Ask a demo question (or add VITE_ANTHROPIC_API_KEY for live answers)…"
-          }
+          placeholder="Ask the local map anything..."
           disabled={loading}
           className="min-w-0 flex-1 bg-transparent font-body text-sm text-ph-ink placeholder:text-ph-ash focus:outline-none disabled:opacity-50"
         />
@@ -110,6 +124,15 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
         >
           Ask
         </button>
+        {loading && (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="shrink-0 rounded-ph border border-ph-red/30 bg-ph-red-soft px-3 py-1.5 font-sans text-sm font-bold text-ph-red transition-colors hover:bg-ph-red/15"
+          >
+            Stop
+          </button>
+        )}
       </form>
 
       {/* Chip suggestions */}
@@ -142,13 +165,14 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
             <span
               className={[
                 'rounded-ph-pill px-2.5 py-0.5 font-sans text-label uppercase tracking-wider',
-                result.source === "cache"
-                  ? 'bg-ph-surface-soft text-ph-body'
-                  : 'bg-ph-green-soft text-ph-green',
+                sourceBadgeClass(result.source),
               ].join(' ')}
             >
-              {result.source === "cache" ? "Demo answer" : "Live answer"}
+              {sourceLabel(result.source)}
             </span>
+            {result.repo_path_status === "invalid" && (
+              <span className="font-sans text-label text-ph-ash">repo path ignored</span>
+            )}
             <span className="ml-auto font-mono text-code text-ph-ash">
               {result.highlight_ids.length} node
               {result.highlight_ids.length !== 1 ? "s" : ""} highlighted
@@ -157,8 +181,62 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
 
           {/* Explanation */}
           <div className="font-body text-body-sm leading-relaxed text-ph-body [&_strong]:font-semibold [&_strong]:text-ph-ink">
-            <ReactMarkdown>{result.explanation}</ReactMarkdown>
+            <ReactMarkdown>{result.markdown}</ReactMarkdown>
           </div>
+
+          <div className="mt-2 rounded-ph-sm border border-ph-border bg-ph-canvas px-3 py-2 font-body text-label leading-snug text-ph-mute">
+            <div>{result.source_reason}</div>
+            <div>
+              Indexing mode: {result.indexing_mode === "local-codex-with-map-evidence"
+                ? "deterministic map evidence + local Codex"
+                : result.indexing_mode === "local-codex-direct"
+                  ? "local Codex direct repo search"
+                : "deterministic map evidence"}
+            </div>
+          </div>
+
+          {result.query_events.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
+                Codex activity
+              </div>
+              <div className="max-h-32 space-y-1 overflow-y-auto rounded-ph-sm border border-ph-border bg-ph-canvas p-2">
+                {result.query_events.slice(-6).map((event, index) => (
+                  <div key={`${event.elapsedMs}-${event.message}-${index}`} className="flex gap-2 font-mono text-code text-ph-body">
+                    <span className="shrink-0 text-ph-ash">{Math.floor(event.elapsedMs / 1000)}s</span>
+                    <span className="min-w-0 break-words">{event.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {result.file_paths.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
+                Evidence files
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {result.file_paths.slice(0, 8).map((path) => (
+                  <span
+                    key={path}
+                    className="max-w-full truncate rounded-ph-sm border border-ph-border bg-ph-canvas px-2 py-0.5 font-mono text-code text-ph-body"
+                    title={path}
+                  >
+                    {path}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {result.visual_blocks.length > 0 && (
+            <div className="mt-3 grid gap-2">
+              {result.visual_blocks.slice(0, 2).map((block, index) => (
+                <VisualBlockView key={`${block.type}-${block.title}-${index}`} block={block} />
+              ))}
+            </div>
+          )}
 
           {/* Highlighted ids list */}
           <div className="mt-3 flex flex-wrap gap-1">
@@ -173,6 +251,65 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function sourceLabel(source: QuerySource): string {
+  if (source === "local-codex") return "Local Codex";
+  if (source === "local-index") return "Local Index";
+  if (source === "no-match") return "No Match";
+  return "Demo";
+}
+
+function sourceBadgeClass(source: QuerySource): string {
+  if (source === "local-codex") return "bg-ph-green-soft text-ph-green";
+  if (source === "local-index") return "bg-ph-blue-soft text-ph-blue-teal";
+  if (source === "no-match") return "bg-ph-red-soft text-ph-red";
+  return "bg-ph-surface-soft text-ph-body";
+}
+
+function VisualBlockView({ block }: { block: QueryVisualBlock }) {
+  if (block.type === "diagram") {
+    return (
+      <div className="rounded-ph-sm border border-ph-border bg-ph-canvas px-3 py-2">
+        <div className="mb-1 flex items-center gap-2 font-sans text-label uppercase tracking-wider text-ph-ash">
+          <span>{block.title}</span>
+          {block.format && <span className="text-ph-mute">{block.format}</span>}
+        </div>
+        {block.source ? (
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-ph-sm border border-ph-border bg-ph-surface px-2 py-2 font-mono text-code leading-snug text-ph-body">
+            {block.source}
+          </pre>
+        ) : (
+          <div className="font-body text-label text-ph-mute">No diagram source returned.</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-ph-sm border border-ph-border bg-ph-canvas px-3 py-2">
+      <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
+        {block.title}
+      </div>
+      <div className="grid gap-1">
+        {block.items.length === 0 && (
+          <div className="font-body text-label text-ph-mute">No file paths in top evidence.</div>
+        )}
+        {block.items.slice(0, 5).map((item, index) => (
+          <div key={`${item.label}-${index}`} className="min-w-0">
+            <div className="truncate font-mono text-code text-ph-ink" title={item.path ?? item.nodeId ?? item.label}>
+              {item.label}
+            </div>
+            {item.value && (
+              <div className="line-clamp-2 font-body text-label leading-snug text-ph-mute">
+                {item.value}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

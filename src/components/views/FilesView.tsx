@@ -37,7 +37,9 @@ export function FilesView({
           <p className="font-body text-body-sm text-ph-mute mt-0.5">
             {selectedNode
               ? `Selected: ${selectedNode.label} — ${selectedNode.path}`
-              : 'Click any file to select it on the map.'}
+              : (data.files?.length ?? 0) > 0
+                ? 'Browse the full tracked file inventory. Files not in the architecture map are visible but unmapped.'
+                : 'Browse key files from the architecture map.'}
           </p>
         </div>
         {selectedNode && (

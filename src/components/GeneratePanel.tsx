@@ -9,13 +9,21 @@ import {
 
 interface GeneratePanelProps {
   onDone: () => void;
+  initialRepoPath?: string;
+  initialModel?: GenerateModel;
+  onSettingsChange?: (settings: { repoPath: string; model: GenerateModel }) => void;
 }
 
-export function GeneratePanel({ onDone }: GeneratePanelProps) {
+export function GeneratePanel({
+  onDone,
+  initialRepoPath = '',
+  initialModel = DEFAULT_GENERATE_MODEL,
+  onSettingsChange,
+}: GeneratePanelProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [repoPath, setRepoPath] = useState('');
-  const [model, setModel] = useState<GenerateModel>(DEFAULT_GENERATE_MODEL);
-  const { status, error, elapsedLabel, stage, events, generate, reset } = useGenerate(onDone);
+  const [repoPath, setRepoPath] = useState(initialRepoPath);
+  const [model, setModel] = useState<GenerateModel>(initialModel);
+  const { status, error, elapsedLabel, stage, events, generate, cancel, reset } = useGenerate(onDone);
 
   const isRunning = status === 'running';
   const canGenerate = repoPath.trim().length > 0 && !isRunning;
@@ -30,6 +38,7 @@ export function GeneratePanel({ onDone }: GeneratePanelProps) {
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    onSettingsChange?.({ repoPath, model });
     if (canGenerate) void generate({ repoPath, model });
   };
 
@@ -64,7 +73,9 @@ export function GeneratePanel({ onDone }: GeneratePanelProps) {
             <input
               value={repoPath}
               onChange={(event) => {
-                setRepoPath(event.target.value);
+                const nextRepoPath = event.target.value;
+                setRepoPath(nextRepoPath);
+                onSettingsChange?.({ repoPath: nextRepoPath, model });
                 if (status !== 'running') reset();
               }}
               placeholder="/path/to/repo"
@@ -81,6 +92,15 @@ export function GeneratePanel({ onDone }: GeneratePanelProps) {
               )}
               {isRunning ? 'Scanning' : 'Run'}
             </button>
+            {isRunning && (
+              <button
+                type="button"
+                onClick={() => void cancel()}
+                className="flex h-8 shrink-0 items-center rounded-md border border-red-400/30 bg-red-500/10 px-3 font-mono text-[11px] text-red-300 transition-colors hover:bg-red-500/20"
+              >
+                Stop
+              </button>
+            )}
           </div>
 
           <div className="mt-3">
@@ -91,7 +111,9 @@ export function GeneratePanel({ onDone }: GeneratePanelProps) {
               <select
                 value={model}
                 onChange={(event) => {
-                  setModel(event.target.value as GenerateModel);
+                  const nextModel = event.target.value as GenerateModel;
+                  setModel(nextModel);
+                  onSettingsChange?.({ repoPath, model: nextModel });
                   if (status !== 'running') reset();
                 }}
                 disabled={isRunning}
@@ -156,6 +178,9 @@ export function GeneratePanel({ onDone }: GeneratePanelProps) {
             )}
             {status === 'done' && (
               <span className="text-tide-300">Map updated from generated data.</span>
+            )}
+            {status === 'cancelled' && (
+              <span className="text-slate2-300">Generation stopped.</span>
             )}
             {status === 'error' && error && <span className="text-red-300">{error}</span>}
             {status === 'idle' && (

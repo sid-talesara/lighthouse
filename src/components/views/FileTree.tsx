@@ -1,8 +1,8 @@
 /**
  * FileTree — helper for FilesView.
  *
- * Builds a nested folder → file tree from the union of all node `path` and
- * `key_files` values. Renders a collapsible tree with PostHog-inspired
+ * Builds a nested folder → file tree from the optional full file inventory
+ * plus all node `path` and `key_files` values. Renders a collapsible tree with PostHog-inspired
  * styling. Cross-view links are wired through onSelectNode / onHighlightNodes.
  */
 
@@ -86,7 +86,7 @@ function sortTree(node: FolderNode): FolderNode {
 }
 
 /**
- * Derives a nested tree from all node paths and key_files in data.
+ * Derives a nested tree from all indexed file paths, node paths, and key_files in data.
  * Files are tagged with the node id they belong to (null if no match).
  */
 export function buildFileTree(data: LighthouseData): FolderNode {
@@ -112,6 +112,12 @@ export function buildFileTree(data: LighthouseData): FolderNode {
   // Insert all key_files
   for (const [filePath, nodeId] of pathToNodeId.entries()) {
     insertPath(root, filePath, nodeId);
+  }
+
+  // Insert full deterministic inventory when present. These leaves are visible
+  // even when the architecture map has not assigned them to a module.
+  for (const file of data.files ?? []) {
+    if (!pathToNodeId.has(file.path)) insertPath(root, file.path, null);
   }
 
   // Also insert the module-level `path` as a virtual folder entry if it has
@@ -416,7 +422,7 @@ export function FileTree({
           )}
         </div>
         <div className="mt-1.5 font-sans text-[11px] text-ph-ash">
-          {totalFiles} files · {data.nodes.length} modules
+          {totalFiles} {(data.files?.length ?? 0) > 0 ? 'files' : 'key files'} · {data.nodes.length} modules
         </div>
       </div>
 
