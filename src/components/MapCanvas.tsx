@@ -157,18 +157,19 @@ function MapCanvasInner({
       proOptions={{ hideAttribution: false }}
       className="lh-canvas"
     >
-      <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="#16202e" />
+      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#BFC1B7" />
       <Controls showInteractive={false} position="bottom-right" />
       <MiniMap
         pannable
         zoomable
         nodeStrokeWidth={2}
         nodeColor={(n) =>
-          n.type === 'cluster' ? '#3e8f89' : n.type === 'module' ? '#2f6f6b' : '#1a2b3d'
+          n.type === 'cluster' ? '#2C84E0' : n.type === 'module' ? '#1078A3' : '#9B9C92'
         }
-        nodeStrokeColor="#0a1019"
-        maskColor="rgba(7,11,18,0.78)"
-        style={{ background: '#0a1019' }}
+        nodeStrokeColor="transparent"
+        nodeBorderRadius={3}
+        maskColor="rgba(238,239,233,0.7)"
+        style={{ background: '#E8E9E2', border: '1px solid #BFC1B7', borderRadius: '6px' }}
       />
     </ReactFlow>
   );
