@@ -1,0 +1,444 @@
+{
+  "repo": {
+    "name": "outline",
+    "description": "A team knowledge base and collaborative wiki: a real-time, ProseMirror-based document editor backed by a Node/Koa API, Postgres/Sequelize models, Redis-backed queues, and a React/MobX single-page app."
+  },
+  "clusters": [
+    {
+      "id": "frontend",
+      "label": "Frontend App Shell",
+      "summary": "The React + MobX single-page application that renders the UI, manages client state, and talks to the API.",
+      "modules": ["mod_app_entry", "mod_scenes", "mod_stores", "mod_app_models", "mod_components"]
+    },
+    {
+      "id": "editor",
+      "label": "Document Editing & Collaboration UI",
+      "summary": "The shared ProseMirror-based rich-text editor schema plus the client editor that wires it into the app.",
+      "modules": ["mod_shared_editor", "mod_app_editor"]
+    },
+    {
+      "id": "api",
+      "label": "API Layer",
+      "summary": "The Koa HTTP server and versioned JSON API endpoints, middlewares, presenters, and command/business logic.",
+      "modules": ["mod_server_entry", "mod_api_routes", "mod_middlewares", "mod_commands", "mod_presenters", "mod_policies"]
+    },
+    {
+      "id": "auth",
+      "label": "Authentication & Access",
+      "summary": "Passport-based login, OAuth provider plugins, session middleware, and account provisioning.",
+      "modules": ["mod_auth_routes", "mod_passport", "mod_oauth", "mod_auth_providers"]
+    },
+    {
+      "id": "realtime",
+      "label": "Real-time Sync & Background Jobs",
+      "summary": "Hocuspocus collaboration server, websocket fan-out, and the Redis-backed queue processors and tasks.",
+      "modules": ["mod_collaboration", "mod_websockets", "mod_queues", "mod_services"]
+    },
+    {
+      "id": "data",
+      "label": "Data & Models",
+      "summary": "Sequelize models, database connection, and migrations defining the persisted domain.",
+      "modules": ["mod_models", "mod_database", "mod_migrations"]
+    },
+    {
+      "id": "storage",
+      "label": "Storage & Attachments",
+      "summary": "Pluggable file storage (local/S3) for attachments, avatars, imports, and exports.",
+      "modules": ["mod_storage_core", "mod_storage_plugin"]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "mod_app_entry",
+      "label": "App Entry & Routing",
+      "kind": "module",
+      "parent": "frontend",
+      "summary": "Boots the React app, sets up routing, theme, and the global authenticated/public layouts.",
+      "key_files": ["app/index.tsx", "app/routes"],
+      "path": "app",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_scenes",
+      "label": "Scenes",
+      "kind": "module",
+      "parent": "frontend",
+      "summary": "Top-level page components for documents, collections, search, settings, and login.",
+      "key_files": ["app/scenes/Document", "app/scenes/Login", "app/scenes/Search"],
+      "path": "app/scenes",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_stores",
+      "label": "MobX Stores",
+      "kind": "module",
+      "parent": "frontend",
+      "summary": "Observable client-side state stores that load, cache, and mutate data via the API.",
+      "key_files": ["app/stores/RootStore.ts", "app/stores/DocumentsStore.ts", "app/stores/AuthStore.ts", "app/stores/base"],
+      "path": "app/stores",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_app_models",
+      "label": "Client Models",
+      "kind": "module",
+      "parent": "frontend",
+      "summary": "Client-side model classes mirroring server entities and decorated for MobX observability.",
+      "key_files": ["app/models/Document.ts", "app/models/Collection.ts", "app/models/base"],
+      "path": "app/models",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_components",
+      "label": "UI Components",
+      "kind": "module",
+      "parent": "frontend",
+      "summary": "Reusable presentational and container React components shared across scenes.",
+      "key_files": ["app/components"],
+      "path": "app/components",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_shared_editor",
+      "label": "Shared Editor Schema",
+      "kind": "module",
+      "parent": "editor",
+      "summary": "The isomorphic ProseMirror schema (nodes, marks, plugins, commands) shared by client and server.",
+      "key_files": ["shared/editor/nodes", "shared/editor/marks", "shared/editor/extensions", "shared/schema.ts"],
+      "path": "shared/editor",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_app_editor",
+      "label": "Client Editor",
+      "kind": "module",
+      "parent": "editor",
+      "summary": "Wraps the shared editor with client extensions, menus, and components for in-app editing.",
+      "key_files": ["app/editor/index.tsx", "app/editor/extensions", "app/editor/menus"],
+      "path": "app/editor",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_server_entry",
+      "label": "Server Entry",
+      "kind": "module",
+      "parent": "api",
+      "summary": "Bootstraps services (web, worker, websockets, collaboration) and starts the Node process.",
+      "key_files": ["server/index.ts", "server/services/index.ts", "server/services/web.ts"],
+      "path": "server",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_api_routes",
+      "label": "API Routes",
+      "kind": "module",
+      "parent": "api",
+      "summary": "Versioned JSON endpoints grouped by resource (documents, collections, auth, etc.).",
+      "key_files": ["server/routes/api/index.ts", "server/routes/api/documents/documents.ts", "server/routes/api/collections"],
+      "path": "server/routes/api",
+      "changed_recently": false
+    },
+    {
+      "id": "node_documents_api",
+      "label": "documents.ts",
+      "kind": "file",
+      "parent": "mod_api_routes",
+      "summary": "Implements the documents.* endpoints (create, update, info, search, move, archive).",
+      "key_files": ["server/routes/api/documents/documents.ts"],
+      "path": "server/routes/api/documents/documents.ts",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_middlewares",
+      "label": "Middlewares",
+      "kind": "module",
+      "parent": "api",
+      "summary": "Koa middlewares for authentication, rate limiting, CSRF, multipart, and request context.",
+      "key_files": ["server/middlewares/authentication.ts", "server/middlewares/rateLimiter.ts", "server/middlewares/apiContext.ts"],
+      "path": "server/middlewares",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_commands",
+      "label": "Commands",
+      "kind": "module",
+      "parent": "api",
+      "summary": "Transactional business-logic operations that mutate domain entities (create, move, import documents).",
+      "key_files": ["server/commands/documentCreator.ts", "server/commands/documentMover.ts", "server/commands/accountProvisioner.ts"],
+      "path": "server/commands",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_presenters",
+      "label": "Presenters",
+      "kind": "module",
+      "parent": "api",
+      "summary": "Serialize Sequelize models into the JSON shapes returned by the API.",
+      "key_files": ["server/presenters/document.ts", "server/presenters/collection.ts", "server/presenters/user.ts"],
+      "path": "server/presenters",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_policies",
+      "label": "Authorization Policies",
+      "kind": "module",
+      "parent": "api",
+      "summary": "Cancan-style ability checks that authorize a user against an action on a model.",
+      "key_files": ["server/policies"],
+      "path": "server/policies",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_auth_routes",
+      "label": "Auth Routes",
+      "kind": "module",
+      "parent": "auth",
+      "summary": "HTTP routes that mount provider login flows and issue authenticated session cookies.",
+      "key_files": ["server/routes/auth/index.ts"],
+      "path": "server/routes/auth",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_passport",
+      "label": "Passport Strategy",
+      "kind": "module",
+      "parent": "auth",
+      "summary": "Shared Passport callback handling that turns provider profiles into provisioned accounts.",
+      "key_files": ["server/utils/passport.ts", "server/middlewares/passport.ts"],
+      "path": "server/utils/passport.ts",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_oauth",
+      "label": "OAuth Provider Server",
+      "kind": "module",
+      "parent": "auth",
+      "summary": "Outline-as-an-OAuth-provider endpoints for issuing tokens to third-party clients.",
+      "key_files": ["server/routes/oauth/index.ts", "server/routes/oauth/oauth.test.ts"],
+      "path": "server/routes/oauth",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_auth_providers",
+      "label": "Auth Provider Plugins",
+      "kind": "module",
+      "parent": "auth",
+      "summary": "Pluggable SSO integrations (Google, OIDC, Slack, Azure) registered at startup.",
+      "key_files": ["plugins/google/server", "plugins/oidc/server", "plugins/slack/server"],
+      "path": "plugins",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_collaboration",
+      "label": "Collaboration Server",
+      "kind": "module",
+      "parent": "realtime",
+      "summary": "Hocuspocus extensions that authenticate, persist, and broadcast Yjs document edits.",
+      "key_files": ["server/collaboration/PersistenceExtension.ts", "server/collaboration/AuthenticationExtension.ts", "server/services/collaboration.ts"],
+      "path": "server/collaboration",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_websockets",
+      "label": "Websockets",
+      "kind": "module",
+      "parent": "realtime",
+      "summary": "Socket.io service that pushes live entity changes and presence to connected clients.",
+      "key_files": ["server/services/websockets.ts"],
+      "path": "server/services/websockets.ts",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_queues",
+      "label": "Queues & Processors",
+      "kind": "module",
+      "parent": "realtime",
+      "summary": "BullMQ queues with event processors and scheduled tasks for async work like emails and backlinks.",
+      "key_files": ["server/queues/index.ts", "server/queues/processors", "server/queues/tasks"],
+      "path": "server/queues",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_services",
+      "label": "Process Services",
+      "kind": "module",
+      "parent": "realtime",
+      "summary": "Selectable process roles (web, worker, websockets, collaboration, admin, cron).",
+      "key_files": ["server/services/index.ts", "server/services/worker.ts", "server/services/cron.ts"],
+      "path": "server/services",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_models",
+      "label": "Sequelize Models",
+      "kind": "module",
+      "parent": "data",
+      "summary": "ORM model definitions for the core domain (Document, Collection, User, Team, Revision).",
+      "key_files": ["server/models/Document.ts", "server/models/Collection.ts", "server/models/User.ts", "server/models/Team.ts"],
+      "path": "server/models",
+      "changed_recently": false
+    },
+    {
+      "id": "node_document_model",
+      "label": "Document.ts",
+      "kind": "file",
+      "parent": "mod_models",
+      "summary": "The central Document model holding content, collaborative state, and tree relationships.",
+      "key_files": ["server/models/Document.ts"],
+      "path": "server/models/Document.ts",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_database",
+      "label": "Database Connection",
+      "kind": "module",
+      "parent": "data",
+      "summary": "Sequelize connection setup plus the Redis client used for caching and queues.",
+      "key_files": ["server/storage/database.ts", "server/storage/redis.ts"],
+      "path": "server/storage",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_migrations",
+      "label": "Migrations",
+      "kind": "module",
+      "parent": "data",
+      "summary": "Sequelize migration scripts that evolve the Postgres schema over time.",
+      "key_files": ["server/migrations"],
+      "path": "server/migrations",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_storage_core",
+      "label": "Storage Core",
+      "kind": "module",
+      "parent": "storage",
+      "summary": "Server file-handling utilities and request-scoped storage helpers.",
+      "key_files": ["server/storage/files", "server/storage/utils.ts"],
+      "path": "server/storage/files",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_storage_plugin",
+      "label": "Storage Plugin (Local/S3)",
+      "kind": "module",
+      "parent": "storage",
+      "summary": "Pluggable storage backend abstracting local disk and S3-compatible object stores.",
+      "key_files": ["plugins/storage/server/index.ts", "plugins/storage/server/api"],
+      "path": "plugins/storage/server",
+      "changed_recently": false
+    }
+  ],
+  "edges": [
+    { "source": "mod_app_entry", "target": "mod_scenes", "kind": "imports" },
+    { "source": "mod_scenes", "target": "mod_stores", "kind": "depends" },
+    { "source": "mod_scenes", "target": "mod_components", "kind": "imports" },
+    { "source": "mod_scenes", "target": "mod_app_editor", "kind": "imports" },
+    { "source": "mod_stores", "target": "mod_app_models", "kind": "imports" },
+    { "source": "mod_stores", "target": "mod_api_routes", "kind": "calls" },
+    { "source": "mod_app_editor", "target": "mod_shared_editor", "kind": "imports" },
+    { "source": "mod_server_entry", "target": "mod_services", "kind": "depends" },
+    { "source": "mod_services", "target": "mod_api_routes", "kind": "depends" },
+    { "source": "mod_services", "target": "mod_collaboration", "kind": "depends" },
+    { "source": "mod_services", "target": "mod_websockets", "kind": "depends" },
+    { "source": "mod_services", "target": "mod_queues", "kind": "depends" },
+    { "source": "mod_api_routes", "target": "mod_middlewares", "kind": "depends" },
+    { "source": "mod_api_routes", "target": "mod_commands", "kind": "calls" },
+    { "source": "mod_api_routes", "target": "mod_presenters", "kind": "calls" },
+    { "source": "mod_api_routes", "target": "mod_policies", "kind": "calls" },
+    { "source": "node_documents_api", "target": "mod_commands", "kind": "calls" },
+    { "source": "mod_commands", "target": "mod_models", "kind": "depends" },
+    { "source": "mod_presenters", "target": "mod_models", "kind": "depends" },
+    { "source": "mod_policies", "target": "mod_models", "kind": "depends" },
+    { "source": "mod_middlewares", "target": "mod_passport", "kind": "depends" },
+    { "source": "mod_auth_routes", "target": "mod_passport", "kind": "calls" },
+    { "source": "mod_auth_routes", "target": "mod_auth_providers", "kind": "depends" },
+    { "source": "mod_passport", "target": "mod_commands", "kind": "calls" },
+    { "source": "mod_oauth", "target": "mod_models", "kind": "depends" },
+    { "source": "mod_collaboration", "target": "mod_models", "kind": "depends" },
+    { "source": "mod_collaboration", "target": "mod_shared_editor", "kind": "imports" },
+    { "source": "mod_commands", "target": "mod_queues", "kind": "calls" },
+    { "source": "mod_queues", "target": "mod_models", "kind": "depends" },
+    { "source": "mod_websockets", "target": "mod_models", "kind": "depends" },
+    { "source": "mod_models", "target": "mod_database", "kind": "depends" },
+    { "source": "node_document_model", "target": "mod_database", "kind": "depends" },
+    { "source": "mod_commands", "target": "mod_storage_core", "kind": "calls" },
+    { "source": "mod_storage_core", "target": "mod_storage_plugin", "kind": "depends" }
+  ],
+  "flows": [
+    {
+      "name": "User login via SSO (OAuth)",
+      "steps": [
+        { "node": "mod_scenes", "description": "User hits the Login scene and selects an SSO provider." },
+        { "node": "mod_auth_routes", "description": "The auth route redirects to the provider and handles the callback." },
+        { "node": "mod_auth_providers", "description": "The provider plugin (e.g. Google/OIDC) returns the authenticated profile." },
+        { "node": "mod_passport", "description": "The Passport callback normalizes the profile and triggers provisioning." },
+        { "node": "mod_commands", "description": "accountProvisioner finds or creates the Team and User records." },
+        { "node": "mod_models", "description": "User/Team/AuthenticationProvider rows are persisted via Sequelize." },
+        { "node": "mod_auth_routes", "description": "A signed session cookie is issued and the user is redirected into the app." }
+      ]
+    },
+    {
+      "name": "Create & edit a document",
+      "steps": [
+        { "node": "mod_scenes", "description": "The Document scene mounts the editor for a new or existing document." },
+        { "node": "mod_stores", "description": "DocumentsStore issues an API call to create or update the document." },
+        { "node": "node_documents_api", "description": "documents.ts validates input and runs middleware/policy checks." },
+        { "node": "mod_policies", "description": "Authorization confirms the user may create/edit in the target collection." },
+        { "node": "mod_commands", "description": "documentCreator/updater performs the transactional write." },
+        { "node": "node_document_model", "description": "The Document model persists content and metadata to Postgres." },
+        { "node": "mod_presenters", "description": "The saved document is serialized back to JSON for the client." },
+        { "node": "mod_queues", "description": "Async processors handle backlinks, notifications, and search indexing." }
+      ]
+    },
+    {
+      "name": "Real-time collaborative editing",
+      "steps": [
+        { "node": "mod_app_editor", "description": "The client editor connects to the collaboration websocket for a document." },
+        { "node": "mod_collaboration", "description": "AuthenticationExtension verifies the user's access to the document." },
+        { "node": "mod_shared_editor", "description": "Yjs updates are applied against the shared ProseMirror schema." },
+        { "node": "mod_collaboration", "description": "PersistenceExtension debounces and writes the merged state back." },
+        { "node": "node_document_model", "description": "The Document model stores the collaborative state and text." },
+        { "node": "mod_websockets", "description": "Change and presence events are broadcast to other connected clients." }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "body_markdown": "## Overview\n\nOutline is a team knowledge base and collaborative wiki. Users write rich documents organized into collections, edit them together in real time, and find them through full-text search.\n\nThe codebase is a TypeScript monorepo split into three roots:\n\n- **`app/`** — the React + MobX single-page application (the Frontend App Shell and client editor).\n- **`server/`** — the Koa HTTP server, JSON API, background workers, and the collaboration server.\n- **`shared/`** — isomorphic code used by both, most importantly the ProseMirror editor schema.\n\nReusable integrations (SSO providers, storage backends, third-party services) live under **`plugins/`** and are registered at startup.",
+      "related_nodes": ["frontend", "api", "editor", "realtime"]
+    },
+    {
+      "id": "architecture",
+      "title": "Architecture",
+      "body_markdown": "## Architecture\n\nThe browser runs the **Frontend App Shell**: scenes render UI, **MobX stores** hold observable state and call the API, and **client models** mirror server entities.\n\nServer-side, a single binary can run one of several **process services** (web, worker, websockets, collaboration, cron). The **web** service exposes the **API Layer** — versioned routes guarded by **middlewares**, authorized by **policies**, executing **commands** for writes, and shaping responses through **presenters**.\n\nState lives in Postgres via **Sequelize models**, with Redis backing caches and **BullMQ queues**. Real-time editing runs through a **Hocuspocus collaboration** server that persists Yjs state, while **Socket.io websockets** broadcast entity and presence changes.",
+      "related_nodes": ["frontend", "api", "data", "realtime", "mod_middlewares", "mod_policies", "mod_commands", "mod_presenters"]
+    },
+    {
+      "id": "key-flows",
+      "title": "Key Flows",
+      "body_markdown": "## Key Flows\n\n**User login (SSO/OAuth).** The Login scene redirects through an auth provider plugin; the Passport callback provisions a Team and User via commands and issues a session cookie.\n\n**Create & edit a document.** The Document scene calls the API through DocumentsStore; `documents.ts` runs policy checks, a command performs the write to the Document model, and queue processors handle backlinks, notifications, and indexing.\n\n**Real-time collaboration.** The client editor opens a collaboration socket; the Hocuspocus AuthenticationExtension authorizes it, Yjs updates apply against the shared schema, PersistenceExtension writes state back, and websockets broadcast changes to peers.",
+      "related_nodes": ["auth", "mod_auth_routes", "mod_passport", "node_documents_api", "mod_commands", "mod_collaboration", "mod_websockets", "mod_app_editor"]
+    },
+    {
+      "id": "entry-points",
+      "title": "Entry Points",
+      "body_markdown": "## Entry Points\n\n- **Client:** `app/index.tsx` boots the React tree and routing.\n- **Server:** `server/index.ts` selects which **process services** to run and starts them.\n- **HTTP/API:** the web service mounts `server/routes/api/index.ts`; auth flows mount at `server/routes/auth/index.ts`.\n- **Real-time:** the collaboration and websockets services start from `server/services/collaboration.ts` and `server/services/websockets.ts`.\n- **Background work:** the worker service drains queues defined in `server/queues/index.ts`.",
+      "related_nodes": ["mod_app_entry", "mod_server_entry", "mod_api_routes", "mod_auth_routes", "mod_collaboration", "mod_websockets", "mod_queues", "mod_services"]
+    },
+    {
+      "id": "data-model",
+      "title": "Data Model",
+      "body_markdown": "## Data Model\n\nThe domain is defined by **Sequelize models** in `server/models/`. Core entities:\n\n- **Team** — the top-level workspace/tenant.\n- **User** with **UserAuthentication** / **AuthenticationProvider** — accounts and their SSO links.\n- **Collection** — a folder grouping documents, with its own permissions.\n- **Document** — the central entity, holding rich-text content, collaborative state, and parent/child tree relationships; revisions are tracked in **Revision**.\n- **Attachment**, **Comment**, **Share**, **Star**, **Subscription**, **Event** — supporting entities.\n\nSchema changes are applied through **migrations** in `server/migrations/`, and the connection is configured in `server/storage/database.ts`.",
+      "related_nodes": ["data", "mod_models", "node_document_model", "mod_database", "mod_migrations"]
+    },
+    {
+      "id": "getting-started",
+      "title": "Getting Started",
+      "body_markdown": "## Getting Started\n\n1. Copy `.env.sample` to `.env` and configure Postgres, Redis, a storage backend, and at least one auth provider.\n2. Install dependencies with `yarn` (the repo uses Yarn workspaces).\n3. Run `yarn dev` to start the Vite client and the Node server with hot reload.\n4. The client entry is `app/index.tsx`; the server entry is `server/index.ts`.\n5. Add or edit rich-text features in the **shared editor schema** under `shared/editor/`, which both the client editor and the collaboration server consume.\n6. New integrations (SSO, storage, notifications) are added as **plugins** under `plugins/`.",
+      "related_nodes": ["frontend", "mod_app_entry", "mod_server_entry", "mod_shared_editor", "mod_auth_providers", "mod_storage_plugin"]
+    }
+  ]
+}
