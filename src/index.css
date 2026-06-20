@@ -24,7 +24,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* ── PostHog-style React Flow overrides (light) ────────────────────── */
+/* PostHog-style React Flow overrides (light) */
 .react-flow {
   --xy-node-background-color-default: #ffffff;
   --xy-node-border-default: 1px solid #bfc1b7;
@@ -57,7 +57,7 @@ body {
   --xy-controls-button-background-color-hover-default: #2c2c2c;
 }
 
-/* Canvas surface — slightly darker than the cream app bg so white node
+/* Canvas surface - slightly darker than the cream app bg so white node
    cards "pop" without shadows. */
 .lh-canvas {
   background: #e8e9e2;
@@ -113,7 +113,7 @@ body {
   animation: dashdraw 0.6s linear infinite;
 }
 
-/* Controls — PostHog flat style */
+/* Controls - PostHog flat style */
 .react-flow__controls {
   box-shadow: none;
   border: 1px solid #bfc1b7;
@@ -149,7 +149,7 @@ body {
   background: #2c2c2c;
 }
 
-/* MiniMap — match card style */
+/* MiniMap - match card style */
 .react-flow__minimap {
   border-radius: 6px;
   border: 1px solid #bfc1b7;
@@ -159,17 +159,16 @@ body {
   border-color: #4b4b4b;
 }
 
-/* Handles are structural only — keep them invisible */
+/* Handles are structural only - keep them invisible */
 .react-flow__handle {
   opacity: 0;
   pointer-events: none;
 }
 
-/* ── Reading panel prose ─────────────────────────────────────────────
-   Calm, legible markdown body. Avoids @tailwindcss/typography dependency. */
+/* Reading panel prose */
 .prose-lh p,
 .prose-lh li {
-  /* Set per-element in ReactMarkdown components — these are fallbacks */
+  /* Set per-element in ReactMarkdown components - these are fallbacks */
 }
 
 /* Thin custom scrollbars for panels */

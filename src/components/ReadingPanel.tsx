@@ -144,7 +144,7 @@ export function ReadingPanel({
     return (
       <PanelShell>
         <div className="flex h-full items-center justify-center">
-          <span className="font-mono text-[12px] text-slate2-400/60">
+          <span className="font-mono text-code text-ph-ash">
             No sections in data.json
           </span>
         </div>
@@ -155,11 +155,11 @@ export function ReadingPanel({
   return (
     <PanelShell>
       {/* Panel header */}
-      <div className="shrink-0 border-b border-slate2-400/12 px-6 py-4">
-        <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-slate2-400/70">
+      <div className="shrink-0 border-b border-ph-border px-6 py-4">
+        <div className="font-sans text-label uppercase tracking-wider text-ph-ash">
           System wiki
         </div>
-        <div className="mt-0.5 font-display text-[15px] font-semibold text-slate2-100">
+        <div className="mt-0.5 font-display text-heading-md font-bold text-ph-ink">
           {data.repo.name}
         </div>
       </div>
@@ -167,7 +167,7 @@ export function ReadingPanel({
       {/* Scrollable sections */}
       <div
         ref={scrollContainerRef}
-        className="lh-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5"
+        className="lh-scroll min-h-0 flex-1 overflow-y-auto bg-ph-surface-doc px-6 py-5"
       >
         <div className="flex flex-col gap-2">
           {data.sections.map((section) => {
@@ -192,9 +192,9 @@ export function ReadingPanel({
       </div>
 
       {/* Footer hint */}
-      <div className="shrink-0 border-t border-slate2-400/12 px-6 py-3">
-        <p className="font-mono text-[10px] text-slate2-400/50">
-          Click a section to highlight related nodes on the map
+      <div className="shrink-0 border-t border-ph-border bg-ph-surface px-6 py-3">
+        <p className="font-sans text-label uppercase tracking-wider text-ph-ash">
+          Click a section to highlight related nodes
         </p>
       </div>
     </PanelShell>
@@ -205,7 +205,7 @@ export function ReadingPanel({
 
 function PanelShell({ children }: { children: React.ReactNode }) {
   return (
-    <aside className="flex h-full w-full flex-col bg-abyss-800/40 animate-riseIn">
+    <aside className="flex h-full w-full flex-col bg-ph-surface animate-panel-in">
       {children}
     </aside>
   );
@@ -235,10 +235,10 @@ function SectionCard({
     <article
       ref={sectionRef}
       className={[
-        'group rounded-xl border transition-all duration-300',
+        'group rounded-ph border transition-colors duration-200',
         highlighted
-          ? 'border-beacon-500/40 bg-beacon-500/[0.05] shadow-[0_0_0_1px_rgba(242,185,104,0.08),0_2px_12px_0_rgba(242,185,104,0.06)]'
-          : 'border-slate2-400/10 bg-abyss-700/20 hover:border-slate2-400/20 hover:bg-abyss-700/30',
+          ? 'border-l-[3px] border-l-ph-yellow border-ph-border bg-ph-surface'
+          : 'border-ph-border-soft bg-ph-surface hover:border-ph-border hover:bg-ph-canvas',
       ].join(' ')}
     >
       {/* Section header — clickable to activate/deactivate */}
@@ -249,19 +249,16 @@ function SectionCard({
         aria-label={`${section.title} — click to highlight related map nodes`}
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          {/* Beacon dot — glows when highlighted */}
+          {/* Status dot */}
           <span
             className={[
-              'h-2 w-2 shrink-0 rounded-full transition-all duration-300',
-              highlighted
-                ? 'bg-beacon-400 shadow-[0_0_8px_2px_rgba(242,185,104,0.55)]'
-                : 'bg-slate2-400/40 group-hover:bg-slate2-300/60',
+              'h-2 w-2 shrink-0 rounded-full transition-colors duration-200',
+              highlighted ? 'bg-ph-yellow' : 'bg-ph-stone group-hover:bg-ph-mute',
             ].join(' ')}
           />
           <span
             className={[
-              'font-display text-[14px] font-semibold leading-snug transition-colors duration-200',
-              highlighted ? 'text-beacon-300' : 'text-slate2-100',
+              'font-display text-heading-sm font-bold leading-snug text-ph-ink',
             ].join(' ')}
           >
             {section.title}
@@ -271,10 +268,10 @@ function SectionCard({
         {/* Related-nodes pill */}
         <span
           className={[
-            'ml-3 shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] transition-colors duration-200',
+            'ml-3 shrink-0 rounded-ph-pill px-2.5 py-0.5 font-sans text-label transition-colors duration-200',
             highlighted
-              ? 'bg-beacon-500/20 text-beacon-300'
-              : 'bg-abyss-600/60 text-slate2-400/70',
+              ? 'bg-ph-yellow text-ph-ink'
+              : 'bg-ph-surface-soft text-ph-mute',
           ].join(' ')}
         >
           {section.related_nodes.length} node{section.related_nodes.length !== 1 ? 's' : ''}
@@ -282,12 +279,7 @@ function SectionCard({
       </button>
 
       {/* Markdown body — always visible, generous leading */}
-      <div
-        className={[
-          'px-5 pb-5 transition-opacity duration-200',
-          highlighted ? 'opacity-100' : 'opacity-80 group-hover:opacity-95',
-        ].join(' ')}
-      >
+      <div className="px-5 pb-5">
         <div className="prose-lh">
           <ReactMarkdown
             components={{
@@ -296,38 +288,38 @@ function SectionCard({
                 <h2 className="sr-only">{c}</h2>
               ),
               h3: ({ children: c }) => (
-                <h3 className="mt-3 mb-1 font-display text-[13px] font-semibold text-slate2-100">
+                <h3 className="mt-3 mb-1 font-display text-heading-sm font-bold text-ph-ink">
                   {c}
                 </h3>
               ),
               p: ({ children: c }) => (
-                <p className="mb-3 text-[13.5px] leading-[1.75] text-slate2-300 last:mb-0">
+                <p className="mb-3 font-body text-body-sm leading-[1.6] text-ph-body last:mb-0">
                   {c}
                 </p>
               ),
               ul: ({ children: c }) => (
-                <ul className="mb-3 space-y-1 pl-4 last:mb-0">{c}</ul>
+                <ul className="mb-3 list-disc space-y-1 pl-4 last:mb-0">{c}</ul>
               ),
               ol: ({ children: c }) => (
-                <ol className="mb-3 space-y-1 pl-4 last:mb-0">{c}</ol>
+                <ol className="mb-3 list-decimal space-y-1 pl-4 last:mb-0">{c}</ol>
               ),
               li: ({ children: c }) => (
-                <li className="text-[13px] leading-[1.65] text-slate2-300 marker:text-slate2-400/50">
+                <li className="font-body text-body-sm leading-[1.55] text-ph-body marker:text-ph-ash">
                   {c}
                 </li>
               ),
               strong: ({ children: c }) => (
-                <strong className="font-semibold text-slate2-100">{c}</strong>
+                <strong className="font-semibold text-ph-ink">{c}</strong>
               ),
               code: ({ children: c }) => (
-                <code className="rounded bg-abyss-600/60 px-1 py-0.5 font-mono text-[12px] text-tide-400">
+                <code className="rounded-ph-sm bg-ph-surface-soft px-1.5 py-0.5 font-mono text-code text-ph-blue-teal">
                   {c}
                 </code>
               ),
               a: ({ children: c, href }) => (
                 <a
                   href={href}
-                  className="text-tide-400 underline decoration-tide-400/40 underline-offset-2 hover:text-tide-300 hover:decoration-tide-300/60"
+                  className="text-ph-blue-link underline decoration-ph-blue/40 underline-offset-2 hover:decoration-ph-blue"
                 >
                   {c}
                 </a>
