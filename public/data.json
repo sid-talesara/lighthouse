@@ -150,7 +150,7 @@
         "frontend/src/components/dashboard/dashboard-overview-tab.tsx"
       ],
       "path": "frontend/src",
-      "changed_recently": false
+      "changed_recently": true
     },
     {
       "id": "mod_ui_design_system",
@@ -296,7 +296,7 @@
         "runner-py/src/utils/otel.py"
       ],
       "path": "runner-py",
-      "changed_recently": false
+      "changed_recently": true
     },
     {
       "id": "mod_execution_artifacts",
@@ -380,7 +380,7 @@
         "recorder/src/types/action.types.ts"
       ],
       "path": "recorder/src",
-      "changed_recently": false
+      "changed_recently": true
     },
     {
       "id": "mod_ai_step_generation",
@@ -428,7 +428,7 @@
         "api/src/models/context-documents.model.ts"
       ],
       "path": "api/src",
-      "changed_recently": false
+      "changed_recently": true
     },
     {
       "id": "mod_ai_failure_healing",
@@ -444,7 +444,7 @@
         "frontend/src/components/auto-healing/healing-activity.tsx"
       ],
       "path": "api/src",
-      "changed_recently": false
+      "changed_recently": true
     },
     {
       "id": "mod_shared_contracts",
@@ -841,5 +841,692 @@
         "mod_python_runner"
       ]
     }
+  ],
+  "pullRequests": [
+    {
+      "id": "pr_142",
+      "title": "Bootstrap Express API server and Drizzle persistence layer",
+      "author": "arjun.menon",
+      "date": "2024-09-12",
+      "status": "merged",
+      "summary": "Stands up the initial Express app with security middleware, health checks, and graceful shutdown, plus the first Drizzle models for organizations, users, and test cases.",
+      "touched": [
+        { "node_id": "mod_api_server", "change": "added" },
+        { "node_id": "mod_db_models", "change": "added" },
+        { "node_id": "mod_db_client_migrations", "change": "added" },
+        { "node_id": "mod_environment_config", "change": "added" }
+      ],
+      "additions": 2840,
+      "deletions": 60
+    },
+    {
+      "id": "pr_158",
+      "title": "Add shared Zod contracts and constants package",
+      "author": "lena.fischer",
+      "date": "2024-09-30",
+      "status": "merged",
+      "summary": "Introduces the shared schemas package consumed by both the API and frontend, including test-step, test-case, and run schemas plus region and status constants.",
+      "touched": [
+        { "node_id": "mod_shared_contracts", "change": "added" },
+        { "node_id": "mod_db_models", "change": "modified" }
+      ],
+      "additions": 1610,
+      "deletions": 45
+    },
+    {
+      "id": "pr_173",
+      "title": "Scaffold authenticated React app shell with Clerk and React Query",
+      "author": "priya.nair",
+      "date": "2024-10-18",
+      "status": "merged",
+      "summary": "Builds the frontend app shell with Clerk auth guard, React Query provider, global layouts, and lazy-loaded routes, wiring it to the API utils client.",
+      "touched": [
+        { "node_id": "mod_frontend_app_shell", "change": "added" },
+        { "node_id": "mod_ui_design_system", "change": "added" },
+        { "node_id": "mod_frontend_test_management", "change": "added" }
+      ],
+      "additions": 3120,
+      "deletions": 110
+    },
+    {
+      "id": "pr_201",
+      "title": "Implement domain controllers and auth/org middleware",
+      "author": "arjun.menon",
+      "date": "2024-11-07",
+      "status": "merged",
+      "summary": "Adds REST controllers for test cases, plans, runs, issues, and environments behind Clerk auth and organization role gates with rate limiting.",
+      "touched": [
+        { "node_id": "mod_api_domain_controllers", "change": "added" },
+        { "node_id": "mod_api_auth_middleware", "change": "added" },
+        { "node_id": "mod_db_models", "change": "modified" }
+      ],
+      "additions": 2470,
+      "deletions": 180
+    },
+    {
+      "id": "pr_224",
+      "title": "Add BullMQ execution queues and regional workers",
+      "author": "diego.santos",
+      "date": "2024-11-26",
+      "status": "merged",
+      "summary": "Defines regional realtime and scheduled queues backed by Redis and the worker processes that acquire concurrency slots, track progress, and handle retries.",
+      "touched": [
+        { "node_id": "mod_execution_queues", "change": "added" },
+        { "node_id": "mod_execution_workers", "change": "added" },
+        { "node_id": "mod_execution_run_services", "change": "added" }
+      ],
+      "additions": 2980,
+      "deletions": 95
+    },
+    {
+      "id": "pr_251",
+      "title": "Wire Python Playwright runner with realtime reporting",
+      "author": "diego.santos",
+      "date": "2024-12-15",
+      "status": "merged",
+      "summary": "Adds the pytest/Playwright runtime, realtime reporter, browser-state helpers, and artifact upload services for screenshots, videos, and traces.",
+      "touched": [
+        { "node_id": "mod_python_runner", "change": "added" },
+        { "node_id": "mod_execution_artifacts", "change": "added" },
+        { "node_id": "mod_execution_workers", "change": "modified" }
+      ],
+      "additions": 2210,
+      "deletions": 70
+    },
+    {
+      "id": "pr_278",
+      "title": "Chrome extension recording pipeline and Socket.IO server",
+      "author": "marek.kowalski",
+      "date": "2025-01-09",
+      "status": "merged",
+      "summary": "Introduces the Socket.IO coordination server, extension background runtime, and content scripts that capture DOM events and generate Playwright locators.",
+      "touched": [
+        { "node_id": "mod_ws_server", "change": "added" },
+        { "node_id": "mod_extension_background", "change": "added" },
+        { "node_id": "mod_extension_content", "change": "added" },
+        { "node_id": "mod_frontend_no_code_editor", "change": "added" }
+      ],
+      "additions": 3640,
+      "deletions": 130
+    },
+    {
+      "id": "pr_309",
+      "title": "AI DSL step generation and Playwright code generation",
+      "author": "lena.fischer",
+      "date": "2025-02-03",
+      "status": "merged",
+      "summary": "Adds OpenAI-backed DSL step generation with Zod-constrained responses and the codegen path that turns DSL steps into executable Playwright Python.",
+      "touched": [
+        { "node_id": "mod_ai_step_generation", "change": "added" },
+        { "node_id": "mod_ai_code_generation", "change": "added" },
+        { "node_id": "mod_shared_contracts", "change": "modified" }
+      ],
+      "additions": 2090,
+      "deletions": 85
+    },
+    {
+      "id": "pr_341",
+      "title": "Modular recorder engine to replace legacy content capture",
+      "author": "marek.kowalski",
+      "date": "2025-03-19",
+      "status": "merged",
+      "summary": "Ships a newer modular recording worker that buffers Playwright recorder actions, converts them to Supatest actions, and uploads screenshots asynchronously.",
+      "touched": [
+        { "node_id": "mod_recorder_engine", "change": "added" },
+        { "node_id": "mod_extension_background", "change": "modified" }
+      ],
+      "additions": 1780,
+      "deletions": 240
+    },
+    {
+      "id": "pr_372",
+      "title": "AI chat conversations, context hub, and usage accounting",
+      "author": "priya.nair",
+      "date": "2025-04-22",
+      "status": "merged",
+      "summary": "Adds AI conversations, context-document enrichment, and the context hub UI, with token-usage accounting surfaced on the analytics dashboard.",
+      "touched": [
+        { "node_id": "mod_ai_chat", "change": "added" },
+        { "node_id": "mod_frontend_ai_dashboard", "change": "modified" }
+      ],
+      "additions": 1960,
+      "deletions": 120
+    },
+    {
+      "id": "pr_398",
+      "title": "Automated failure analysis and self-healing test repair",
+      "author": "lena.fischer",
+      "date": "2025-05-20",
+      "status": "merged",
+      "summary": "Categorizes execution failures, persists healing sessions and attempts, and renders healing activity so flaky tests can be repaired automatically.",
+      "touched": [
+        { "node_id": "mod_ai_failure_healing", "change": "added" },
+        { "node_id": "mod_ai_chat", "change": "modified" },
+        { "node_id": "mod_python_runner", "change": "modified" }
+      ],
+      "additions": 2310,
+      "deletions": 95
+    },
+    {
+      "id": "pr_417",
+      "title": "Run analytics dashboard refresh and queue admin metrics",
+      "author": "priya.nair",
+      "date": "2025-06-11",
+      "status": "open",
+      "summary": "Reworks the dashboard overview with run-trend charts and live queue-depth metrics, plus a refreshed AI step-eval screen for the admin area.",
+      "touched": [
+        { "node_id": "mod_frontend_ai_dashboard", "change": "modified" },
+        { "node_id": "mod_recorder_engine", "change": "modified" }
+      ],
+      "additions": 940,
+      "deletions": 310
+    }
+  ],
+  "dbTables": [
+    {
+      "id": "tbl_organizations",
+      "name": "organizations",
+      "module_id": "mod_db_models",
+      "summary": "Top-level tenant; owns all projects, users, and billing context.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "clerk_org_id", "type": "text" },
+        { "name": "name", "type": "text" },
+        { "name": "plan", "type": "text" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_users",
+      "name": "users",
+      "module_id": "mod_db_models",
+      "summary": "Authenticated members synced from Clerk, scoped to an organization.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "organization_id", "type": "uuid", "fk": "tbl_organizations" },
+        { "name": "clerk_user_id", "type": "text" },
+        { "name": "email", "type": "text" },
+        { "name": "role", "type": "text" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_projects",
+      "name": "projects",
+      "module_id": "mod_db_models",
+      "summary": "A workspace grouping test cases, plans, and environments.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "organization_id", "type": "uuid", "fk": "tbl_organizations" },
+        { "name": "name", "type": "text" },
+        { "name": "slug", "type": "text" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_test_cases",
+      "name": "test_cases",
+      "module_id": "mod_db_models",
+      "summary": "An individual UI test composed of ordered DSL steps.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "project_id", "type": "uuid", "fk": "tbl_projects" },
+        { "name": "folder_id", "type": "uuid" },
+        { "name": "name", "type": "text" },
+        { "name": "status", "type": "text" },
+        { "name": "created_by", "type": "uuid", "fk": "tbl_users" },
+        { "name": "updated_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_test_steps",
+      "name": "test_steps",
+      "module_id": "mod_shared_contracts",
+      "summary": "Ordered DSL steps belonging to a test case, including selectors and actions.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "test_case_id", "type": "uuid", "fk": "tbl_test_cases" },
+        { "name": "order_index", "type": "integer" },
+        { "name": "action", "type": "text" },
+        { "name": "selector", "type": "jsonb" },
+        { "name": "payload", "type": "jsonb" }
+      ]
+    },
+    {
+      "id": "tbl_test_plans",
+      "name": "test_plans",
+      "module_id": "mod_db_models",
+      "summary": "A named collection of test cases executed together on a schedule or on demand.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "project_id", "type": "uuid", "fk": "tbl_projects" },
+        { "name": "name", "type": "text" },
+        { "name": "schedule_cron", "type": "text" },
+        { "name": "environment_id", "type": "uuid", "fk": "tbl_environments" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_environments",
+      "name": "environments",
+      "module_id": "mod_db_models",
+      "summary": "Target base URL plus variables used when executing a plan or case.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "project_id", "type": "uuid", "fk": "tbl_projects" },
+        { "name": "name", "type": "text" },
+        { "name": "base_url", "type": "text" },
+        { "name": "variables", "type": "jsonb" }
+      ]
+    },
+    {
+      "id": "tbl_grouped_runs",
+      "name": "grouped_runs",
+      "module_id": "mod_db_models",
+      "summary": "A batch execution of a test plan that fans out into individual case runs.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "test_plan_id", "type": "uuid", "fk": "tbl_test_plans" },
+        { "name": "environment_id", "type": "uuid", "fk": "tbl_environments" },
+        { "name": "status", "type": "text" },
+        { "name": "triggered_by", "type": "uuid", "fk": "tbl_users" },
+        { "name": "started_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_test_case_runs",
+      "name": "test_case_runs",
+      "module_id": "mod_db_models",
+      "summary": "Execution record for a single test case within a grouped run.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "grouped_run_id", "type": "uuid", "fk": "tbl_grouped_runs" },
+        { "name": "test_case_id", "type": "uuid", "fk": "tbl_test_cases" },
+        { "name": "region", "type": "text" },
+        { "name": "status", "type": "text" },
+        { "name": "duration_ms", "type": "integer" },
+        { "name": "finished_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_run_artifacts",
+      "name": "run_artifacts",
+      "module_id": "mod_execution_artifacts",
+      "summary": "Screenshots, videos, traces, and HTML snapshots produced by a case run.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "test_case_run_id", "type": "uuid", "fk": "tbl_test_case_runs" },
+        { "name": "kind", "type": "text" },
+        { "name": "storage_url", "type": "text" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_recordings",
+      "name": "recordings",
+      "module_id": "mod_recorder_engine",
+      "summary": "Captured browser recording session converted into Supatest actions.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "test_case_id", "type": "uuid", "fk": "tbl_test_cases" },
+        { "name": "created_by", "type": "uuid", "fk": "tbl_users" },
+        { "name": "action_count", "type": "integer" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_api_keys",
+      "name": "api_keys",
+      "module_id": "mod_public_api",
+      "summary": "Hashed API keys used by external clients to trigger plan runs.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "organization_id", "type": "uuid", "fk": "tbl_organizations" },
+        { "name": "hashed_key", "type": "text" },
+        { "name": "label", "type": "text" },
+        { "name": "last_used_at", "type": "timestamptz" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_ai_generations",
+      "name": "ai_generations",
+      "module_id": "mod_ai_chat",
+      "summary": "Record of an AI step/code generation request with token usage and cost.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "organization_id", "type": "uuid", "fk": "tbl_organizations" },
+        { "name": "test_case_id", "type": "uuid", "fk": "tbl_test_cases" },
+        { "name": "kind", "type": "text" },
+        { "name": "model", "type": "text" },
+        { "name": "input_tokens", "type": "integer" },
+        { "name": "output_tokens", "type": "integer" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    },
+    {
+      "id": "tbl_healing_sessions",
+      "name": "healing_sessions",
+      "module_id": "mod_ai_failure_healing",
+      "summary": "A self-healing attempt session opened after a test case run fails.",
+      "columns": [
+        { "name": "id", "type": "uuid", "pk": true },
+        { "name": "test_case_run_id", "type": "uuid", "fk": "tbl_test_case_runs" },
+        { "name": "failure_category", "type": "text" },
+        { "name": "status", "type": "text" },
+        { "name": "attempt_count", "type": "integer" },
+        { "name": "created_at", "type": "timestamptz" }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "id": "fn_create_test_case_handler",
+      "name": "createTestCaseHandler",
+      "module_id": "mod_api_domain_controllers",
+      "signature": "(req: Request, res: Response) => Promise<void>",
+      "summary": "POST /test-cases controller; validates the body and delegates to the test-case service."
+    },
+    {
+      "id": "fn_list_test_cases_handler",
+      "name": "listTestCasesHandler",
+      "module_id": "mod_api_domain_controllers",
+      "signature": "(req: Request, res: Response) => Promise<void>",
+      "summary": "GET /test-cases controller; resolves project scope then queries cases."
+    },
+    {
+      "id": "fn_start_grouped_run_handler",
+      "name": "startGroupedRunHandler",
+      "module_id": "mod_api_domain_controllers",
+      "signature": "(req: Request, res: Response) => Promise<void>",
+      "summary": "POST /runs controller; kicks off a grouped run for a plan or set of cases."
+    },
+    {
+      "id": "fn_create_test_case",
+      "name": "createTestCase",
+      "module_id": "mod_execution_run_services",
+      "signature": "(input: CreateTestCaseInput) => Promise<TestCase>",
+      "summary": "Service that persists a new test case and its initial steps."
+    },
+    {
+      "id": "fn_run_test_case",
+      "name": "runTestCase",
+      "module_id": "mod_execution_run_services",
+      "signature": "(testCaseId: string, ctx: RunContext) => Promise<TestCaseRun>",
+      "summary": "Snapshots steps and enqueues a single test-case run job."
+    },
+    {
+      "id": "fn_run_test_plan",
+      "name": "runTestPlan",
+      "module_id": "mod_execution_run_services",
+      "signature": "(planId: string, ctx: RunContext) => Promise<GroupedRun>",
+      "summary": "Expands a plan into a grouped run and fans out per-case jobs."
+    },
+    {
+      "id": "fn_run_grouped_run",
+      "name": "runGroupedRun",
+      "module_id": "mod_execution_run_services",
+      "signature": "(groupedRunId: string) => Promise<void>",
+      "summary": "Creates runtime groups and enqueues regional jobs for a grouped run."
+    },
+    {
+      "id": "fn_insert_test_case",
+      "name": "insertTestCase",
+      "module_id": "mod_db_models",
+      "signature": "(values: NewTestCase) => Promise<TestCase>",
+      "summary": "Drizzle insert into test_cases."
+    },
+    {
+      "id": "fn_query_test_cases",
+      "name": "queryTestCases",
+      "module_id": "mod_db_models",
+      "signature": "(projectId: string) => Promise<TestCase[]>",
+      "summary": "Drizzle select of test cases for a project."
+    },
+    {
+      "id": "fn_insert_grouped_run",
+      "name": "insertGroupedRun",
+      "module_id": "mod_db_models",
+      "signature": "(values: NewGroupedRun) => Promise<GroupedRun>",
+      "summary": "Drizzle insert into grouped_runs."
+    },
+    {
+      "id": "fn_insert_test_case_run",
+      "name": "insertTestCaseRun",
+      "module_id": "mod_db_models",
+      "signature": "(values: NewTestCaseRun) => Promise<TestCaseRun>",
+      "summary": "Drizzle insert into test_case_runs."
+    },
+    {
+      "id": "fn_update_run_status",
+      "name": "updateRunStatus",
+      "module_id": "mod_db_models",
+      "signature": "(runId: string, status: RunStatus) => Promise<void>",
+      "summary": "Drizzle update of a test_case_run status and timing."
+    },
+    {
+      "id": "fn_enqueue_run_job",
+      "name": "enqueueRunJob",
+      "module_id": "mod_execution_queues",
+      "signature": "(region: string, payload: RunJobPayload) => Promise<void>",
+      "summary": "Adds a run-test job to the regional BullMQ queue."
+    },
+    {
+      "id": "fn_acquire_slot",
+      "name": "acquireConcurrencySlot",
+      "module_id": "mod_execution_queues",
+      "signature": "(region: string) => Promise<boolean>",
+      "summary": "Acquires a Redis-backed concurrency slot for a region."
+    },
+    {
+      "id": "fn_process_run_job",
+      "name": "processRunJob",
+      "module_id": "mod_execution_workers",
+      "signature": "(job: Job<RunJobPayload>) => Promise<void>",
+      "summary": "Worker entry point that drives a single test-case run end to end."
+    },
+    {
+      "id": "fn_report_progress",
+      "name": "reportProgress",
+      "module_id": "mod_execution_workers",
+      "signature": "(runId: string, progress: number) => void",
+      "summary": "Emits run progress updates over the worker channel."
+    },
+    {
+      "id": "fn_generate_dsl_steps",
+      "name": "generateDslSteps",
+      "module_id": "mod_ai_step_generation",
+      "signature": "(ctx: PageContext, instruction: string) => Promise<DslStep[]>",
+      "summary": "Builds the OpenAI prompt and parses a Zod-validated DSL step list."
+    },
+    {
+      "id": "fn_build_prompt_blocks",
+      "name": "buildPromptBlocks",
+      "module_id": "mod_ai_step_generation",
+      "signature": "(ctx: PageContext) => PromptBlock[]",
+      "summary": "Assembles HTML context, snippets, and schema blocks for the prompt."
+    },
+    {
+      "id": "fn_validate_steps",
+      "name": "validateSteps",
+      "module_id": "mod_ai_step_generation",
+      "signature": "(steps: unknown) => DslStep[]",
+      "summary": "Validates raw model output against the shared test-step schema."
+    },
+    {
+      "id": "fn_generate_playwright_code",
+      "name": "generatePlaywrightPyCode",
+      "module_id": "mod_ai_code_generation",
+      "signature": "(steps: DslStep[], cfg: RunConfig) => string",
+      "summary": "Turns DSL steps and a run config into executable Playwright Python."
+    },
+    {
+      "id": "fn_render_readable_body",
+      "name": "renderReadableBody",
+      "module_id": "mod_ai_code_generation",
+      "signature": "(steps: DslStep[]) => string",
+      "summary": "Produces a human-readable narration of the generated test body."
+    },
+    {
+      "id": "fn_run_pytest",
+      "name": "runPytestSession",
+      "module_id": "mod_python_runner",
+      "signature": "(code: str, cfg: RunnerConfig) -> RunResult",
+      "summary": "Executes generated pytest/Playwright code and streams realtime results."
+    },
+    {
+      "id": "fn_realtime_report",
+      "name": "emitRealtimeEvent",
+      "module_id": "mod_python_runner",
+      "signature": "(event: ReporterEvent) -> None",
+      "summary": "Sends step-level realtime events from the runner back to the server."
+    },
+    {
+      "id": "fn_post_process_run",
+      "name": "handleTestRunPostProcessing",
+      "module_id": "mod_execution_artifacts",
+      "signature": "(runId: string, raw: RawArtifacts) => Promise<void>",
+      "summary": "Uploads artifacts and writes the final run status after execution."
+    },
+    {
+      "id": "fn_upload_screenshots",
+      "name": "uploadScreenshots",
+      "module_id": "mod_execution_artifacts",
+      "signature": "(runId: string, files: Buffer[]) => Promise<string[]>",
+      "summary": "Uploads screenshots to storage and returns their URLs."
+    },
+    {
+      "id": "fn_handle_recording_event",
+      "name": "handleRecordingEvent",
+      "module_id": "mod_ws_server",
+      "signature": "(socket: Socket, evt: RecordingEvent) => void",
+      "summary": "Routes recording action/screenshot events to the active session."
+    },
+    {
+      "id": "fn_authenticate_socket",
+      "name": "authenticateSocket",
+      "module_id": "mod_ws_server",
+      "signature": "(socket: Socket) => Promise<AuthContext>",
+      "summary": "Validates a Clerk token on the realtime connection."
+    },
+    {
+      "id": "fn_buffer_action",
+      "name": "bufferRecorderAction",
+      "module_id": "mod_recorder_engine",
+      "signature": "(action: RecorderAction) => void",
+      "summary": "Buffers a Playwright recorder action before conversion."
+    },
+    {
+      "id": "fn_convert_action",
+      "name": "toSupatestAction",
+      "module_id": "mod_recorder_engine",
+      "signature": "(action: RecorderAction) => SupatestAction",
+      "summary": "Converts a raw recorder action into a Supatest DSL action."
+    },
+    {
+      "id": "fn_generate_locators",
+      "name": "generateLocators",
+      "module_id": "mod_extension_content",
+      "signature": "(el: Element) => Locator[]",
+      "summary": "Generates ranked Playwright selectors for a captured element."
+    },
+    {
+      "id": "fn_send_ws_message",
+      "name": "sendWsMessage",
+      "module_id": "mod_extension_background",
+      "signature": "(msg: ExtensionMessage) => void",
+      "summary": "Sends a buffered message over the extension WebSocket connection."
+    },
+    {
+      "id": "fn_generate_conversational_response",
+      "name": "generateConversationalResponse",
+      "module_id": "mod_ai_chat",
+      "signature": "(conversationId: string, prompt: string) => Promise<string>",
+      "summary": "Aggregates conversation history and context docs to answer an AI chat turn."
+    },
+    {
+      "id": "fn_record_ai_usage",
+      "name": "recordAiUsage",
+      "module_id": "mod_ai_chat",
+      "signature": "(usage: AiUsage) => Promise<void>",
+      "summary": "Persists token usage and cost for an AI generation."
+    },
+    {
+      "id": "fn_analyze_failure",
+      "name": "analyzeFailure",
+      "module_id": "mod_ai_failure_healing",
+      "signature": "(runId: string) => Promise<FailureCategory>",
+      "summary": "Categorizes a failed run and opens a healing session if recoverable."
+    },
+    {
+      "id": "fn_attempt_heal",
+      "name": "attemptHeal",
+      "module_id": "mod_ai_failure_healing",
+      "signature": "(sessionId: string) => Promise<HealResult>",
+      "summary": "Regenerates broken steps and records a healing attempt."
+    },
+    {
+      "id": "fn_fetch_test_cases_hook",
+      "name": "useTestCases",
+      "module_id": "mod_frontend_test_management",
+      "signature": "(projectId: string) => UseQueryResult<TestCase[]>",
+      "summary": "React Query hook that fetches test cases for the management UI."
+    },
+    {
+      "id": "fn_api_get",
+      "name": "apiGet",
+      "module_id": "mod_frontend_app_shell",
+      "signature": "<T>(path: string) => Promise<T>",
+      "summary": "Authenticated fetch wrapper used by frontend data hooks."
+    },
+    {
+      "id": "fn_trigger_public_run",
+      "name": "triggerPublicPlanRun",
+      "module_id": "mod_public_api",
+      "signature": "(req: Request, res: Response) => Promise<void>",
+      "summary": "Public v1 endpoint that triggers a plan run via API key."
+    }
+  ],
+  "calls": [
+    { "from": "fn_create_test_case_handler", "to": "fn_create_test_case" },
+    { "from": "fn_create_test_case", "to": "fn_insert_test_case" },
+    { "from": "fn_list_test_cases_handler", "to": "fn_query_test_cases" },
+    { "from": "fn_fetch_test_cases_hook", "to": "fn_api_get" },
+    { "from": "fn_api_get", "to": "fn_list_test_cases_handler" },
+    { "from": "fn_start_grouped_run_handler", "to": "fn_run_test_plan" },
+    { "from": "fn_run_test_plan", "to": "fn_run_grouped_run" },
+    { "from": "fn_run_grouped_run", "to": "fn_insert_grouped_run" },
+    { "from": "fn_run_grouped_run", "to": "fn_run_test_case" },
+    { "from": "fn_run_test_case", "to": "fn_insert_test_case_run" },
+    { "from": "fn_run_test_case", "to": "fn_enqueue_run_job" },
+    { "from": "fn_enqueue_run_job", "to": "fn_acquire_slot" },
+    { "from": "fn_process_run_job", "to": "fn_acquire_slot" },
+    { "from": "fn_process_run_job", "to": "fn_generate_playwright_code" },
+    { "from": "fn_process_run_job", "to": "fn_run_pytest" },
+    { "from": "fn_process_run_job", "to": "fn_report_progress" },
+    { "from": "fn_process_run_job", "to": "fn_post_process_run" },
+    { "from": "fn_process_run_job", "to": "fn_update_run_status" },
+    { "from": "fn_generate_playwright_code", "to": "fn_generate_dsl_steps" },
+    { "from": "fn_generate_playwright_code", "to": "fn_render_readable_body" },
+    { "from": "fn_generate_dsl_steps", "to": "fn_build_prompt_blocks" },
+    { "from": "fn_generate_dsl_steps", "to": "fn_validate_steps" },
+    { "from": "fn_run_pytest", "to": "fn_realtime_report" },
+    { "from": "fn_realtime_report", "to": "fn_handle_recording_event" },
+    { "from": "fn_post_process_run", "to": "fn_upload_screenshots" },
+    { "from": "fn_post_process_run", "to": "fn_update_run_status" },
+    { "from": "fn_post_process_run", "to": "fn_analyze_failure" },
+    { "from": "fn_analyze_failure", "to": "fn_attempt_heal" },
+    { "from": "fn_attempt_heal", "to": "fn_generate_dsl_steps" },
+    { "from": "fn_attempt_heal", "to": "fn_update_run_status" },
+    { "from": "fn_handle_recording_event", "to": "fn_authenticate_socket" },
+    { "from": "fn_handle_recording_event", "to": "fn_convert_action" },
+    { "from": "fn_buffer_action", "to": "fn_convert_action" },
+    { "from": "fn_convert_action", "to": "fn_send_ws_message" },
+    { "from": "fn_send_ws_message", "to": "fn_handle_recording_event" },
+    { "from": "fn_generate_locators", "to": "fn_send_ws_message" },
+    { "from": "fn_generate_conversational_response", "to": "fn_generate_dsl_steps" },
+    { "from": "fn_generate_conversational_response", "to": "fn_record_ai_usage" },
+    { "from": "fn_trigger_public_run", "to": "fn_run_test_plan" },
+    { "from": "fn_create_test_case_handler", "to": "fn_generate_dsl_steps" }
   ]
 }

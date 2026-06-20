@@ -5,6 +5,12 @@ export interface Repo {
   description: string;
 }
 
+export interface IndexedFile {
+  path: string;
+  language: string;
+  size_bytes: number;
+}
+
 export type NodeKind = 'cluster' | 'module' | 'file';
 export type EdgeKind = 'depends' | 'calls' | 'imports';
 
@@ -49,11 +55,71 @@ export interface Section {
   related_nodes: string[]; // node ids or cluster ids
 }
 
+// ── PR / change-evolution dimension ──────────────────────────────────────────
+
+export type PullRequestStatus = 'merged' | 'open' | 'draft';
+export type ChangeKind = 'added' | 'modified' | 'removed';
+
+export interface PullRequestTouch {
+  node_id: string; // references a node or cluster id
+  change: ChangeKind;
+}
+
+export interface PullRequest {
+  id: string;
+  title: string;
+  author: string;
+  date: string; // ISO date string
+  status: PullRequestStatus;
+  summary: string;
+  touched: PullRequestTouch[];
+  additions?: number;
+  deletions?: number;
+}
+
+// ── Database schema dimension ─────────────────────────────────────────────────
+
+export interface DbColumn {
+  name: string;
+  type: string;
+  pk?: boolean;
+  fk?: string; // references another DbTable id
+}
+
+export interface DbTable {
+  id: string;
+  name: string;
+  module_id?: string; // owning node id
+  columns: DbColumn[];
+  summary?: string;
+}
+
+// ── Functions / call-graph dimension ──────────────────────────────────────────
+
+export interface FunctionNode {
+  id: string;
+  name: string;
+  module_id: string; // owning node id
+  signature?: string;
+  summary?: string;
+}
+
+export interface CallEdge {
+  from: string; // function id
+  to: string; // function id
+}
+
 export interface LighthouseData {
   repo: Repo;
+  files?: IndexedFile[];
   clusters: Cluster[];
   nodes: LighthouseNode[];
   edges: Edge[];
   flows: Flow[];
   sections: Section[];
+  // New optional dimensions (kept optional so existing data stays valid).
+  pullRequests?: PullRequest[];
+  dbTables?: DbTable[];
+  functions?: FunctionNode[];
+  calls?: CallEdge[];
 }
