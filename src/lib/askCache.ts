@@ -10,69 +10,58 @@ export interface CachedAnswer {
 // Three pre-written demo entries with real node/cluster ids.
 export const CACHED_ANSWERS: CachedAnswer[] = [
   {
-    question: "Where does authentication happen?",
+    question: "Where does browser recording and test authoring happen?",
     highlight_ids: [
-      "auth",
-      "mod_auth_routes",
-      "mod_passport",
-      "mod_oauth",
-      "mod_auth_providers",
-      "mod_middlewares",
+      "cluster_recording_realtime",
+      "mod_frontend_no_code_editor",
+      "mod_recorder_engine",
+      "mod_extension_background",
+      "mod_extension_content",
+      "mod_ws_server",
     ],
     explanation:
-      "Authentication lives in the **Auth** cluster. " +
-      "HTTP login flows are mounted in **Auth Routes** (`server/routes/auth/`), which hand off to " +
-      "pluggable **Auth Provider Plugins** (Google, OIDC, Slack, Azure) under `plugins/`. " +
-      "The **Passport Strategy** (`server/utils/passport.ts`) normalises any provider profile into a " +
-      "provisioned account via the `accountProvisioner` command, then issues a signed session cookie. " +
-      "**OAuth Provider Server** routes let Outline act as an OAuth server for third-party clients. " +
-      "Finally, the **Middlewares** layer (`server/middlewares/authentication.ts`) guards every API " +
-      "request by verifying the session on each call.",
+      "Test authoring via browser recording spans two clusters. " +
+      "The no-code editor (frontend/src/components/nocode-editor/) starts and stops recording sessions " +
+      "and renders editable steps. The Chrome extension captures DOM events, generates Playwright " +
+      "locators, and buffers actions through background and content scripts. The recorder engine " +
+      "packages a newer modular worker that converts captured actions into Supatest DSL steps. " +
+      "All realtime coordination — forwarding action events, screenshots, and recorder lifecycle messages — " +
+      "runs through the Socket.IO server.",
   },
   {
-    question: "How does real-time collaborative editing work?",
+    question: "How does the API layer handle authentication and routing?",
     highlight_ids: [
-      "realtime",
-      "mod_collaboration",
-      "mod_websockets",
-      "mod_app_editor",
-      "mod_shared_editor",
-      "node_document_model",
+      "cluster_api_platform",
+      "mod_api_server",
+      "mod_api_auth_middleware",
+      "mod_api_domain_controllers",
+      "mod_public_api",
     ],
     explanation:
-      "Real-time collaboration runs across two clusters. " +
-      "On the client, the **Client Editor** (`app/editor/`) opens a WebSocket to the collaboration server " +
-      "and syncs Yjs CRDTs through the **Shared Editor Schema** (`shared/editor/`) — the same ProseMirror " +
-      "schema consumed by both the browser and the server. " +
-      "Server-side, the **Collaboration Server** (Hocuspocus, `server/collaboration/`) authenticates the " +
-      "socket via `AuthenticationExtension`, merges incoming Yjs updates, and persists the result back to " +
-      "the **Document model** via `PersistenceExtension`. " +
-      "In parallel, **Websockets** (Socket.io, `server/services/websockets.ts`) broadcast entity-change " +
-      "and presence events to every other connected client so the UI stays live.",
+      "The API platform is an Express server (api/src/server.ts) that registers all routes and " +
+      "middleware at startup. Every authenticated request passes through Clerk JWT verification and " +
+      "organization role checks in the auth middleware layer before reaching domain controllers. " +
+      "Controllers handle REST endpoints for tests, plans, runs, issues, environments, and attachments. " +
+      "A separate versioned public API surface (api/src/controllers/public/v1/) exposes API-key-gated " +
+      "endpoints so external clients can trigger test plan runs without a Clerk session.",
   },
   {
-    question: "Where is the API layer and what does it depend on?",
+    question: "How does AI test generation and failure healing work?",
     highlight_ids: [
-      "api",
-      "mod_server_entry",
-      "mod_api_routes",
-      "node_documents_api",
-      "mod_middlewares",
-      "mod_commands",
-      "mod_presenters",
-      "mod_policies",
-      "mod_models",
+      "cluster_ai_generation",
+      "mod_ai_step_generation",
+      "mod_ai_code_generation",
+      "mod_ai_chat",
+      "mod_ai_failure_healing",
+      "mod_shared_contracts",
     ],
     explanation:
-      "The **API Layer** cluster is the Koa HTTP server. " +
-      "**Server Entry** (`server/index.ts`) bootstraps the process services; the **web** service mounts " +
-      "the versioned JSON **API Routes** (`server/routes/api/`). " +
-      "Every request is first filtered by **Middlewares** (auth, rate-limiting, CSRF), then **Authorization " +
-      "Policies** confirm the user may perform the action, before **Commands** execute the transactional " +
-      "business logic (e.g. `documentCreator`, `accountProvisioner`). " +
-      "Responses are shaped by **Presenters**, which serialise **Sequelize Models** into the JSON the " +
-      "client consumes. The `documents.ts` file is highlighted as the busiest single endpoint — it " +
-      "handles create, update, search, move, and archive.",
+      "AI capabilities live entirely in the AI Generation cluster. Step generation builds OpenAI " +
+      "prompts from page context and user instructions, then validates responses against Zod-constrained " +
+      "DSL schemas shared across packages. Code generation translates those DSL steps into executable " +
+      "Playwright Python. The AI chat module manages conversation history and context documents so users " +
+      "can author tests conversationally. When a test fails, the failure healing module categorizes the " +
+      "error, stores healing sessions, and drives automated repair flows.",
   },
 ];
 
@@ -87,9 +76,9 @@ function normalise(q: string): string {
 
 // Shared keywords for each cached question (order mirrors CACHED_ANSWERS).
 const KEYWORDS: string[][] = [
-  ["auth", "authentication", "login", "sso", "oauth", "session", "passport", "sign in"],
-  ["realtime", "real-time", "real time", "collaborative", "collaboration", "websocket", "yjs", "hocuspocus", "editing"],
-  ["api", "layer", "routes", "endpoint", "koa", "http", "server", "depend"],
+  ["record", "recording", "browser", "authoring", "author", "capture", "extension", "no-code", "nocode", "step"],
+  ["api", "authentication", "auth", "routing", "route", "endpoint", "middleware", "express", "http", "server", "clerk"],
+  ["ai", "generation", "generate", "heal", "healing", "failure", "chat", "playwright", "dsl", "step generation"],
 ];
 
 /**
