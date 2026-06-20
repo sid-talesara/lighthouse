@@ -27,6 +27,7 @@
  */
 
 import type { LighthouseData } from '../../types/lighthouse';
+import type { GenerateModel } from '../../lib/generateOptions';
 
 export interface ViewProps {
   /** The full dataset (read-only). */
@@ -39,6 +40,14 @@ export interface ViewProps {
   onSelectNode: (id: string | null) => void;
   /** Drive the global highlight set. */
   onHighlightNodes: (ids: Set<string>) => void;
+  /** Open the rich module-wiki drawer for a node/cluster id. */
+  onOpenWiki?: (id: string) => void;
+  /** True until the user first opens a wiki — drives onboarding hints. */
+  showWikiHint?: boolean;
+  /** Repository path used by local Codex-backed query surfaces. */
+  repoPath?: string;
+  /** Local Codex model used by query surfaces. */
+  model?: GenerateModel;
 }
 
 /** The top-level views, in tab order. */

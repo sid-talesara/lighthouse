@@ -52,6 +52,8 @@ function MapCanvasInner({
   selectedNodeId,
   highlightedNodeIds,
   onSelectNode,
+  onOpenWiki,
+  showWikiHint = false,
 }: MapCanvasProps) {
   const index: GraphIndex = useMemo(() => buildIndex(data), [data]);
 
@@ -87,7 +89,19 @@ function MapCanvasInner({
     let cancelled = false;
     void layoutGraph(logical, nextEdges).then((positioned) => {
       if (cancelled || token !== layoutToken.current) return;
-      setNodes(positioned);
+      // Inject the wiki opener into each node's data so the card's "open wiki"
+      // affordance can fire it without re-plumbing the graph builders.
+      const withWiki = onOpenWiki
+        ? positioned.map((n) => ({
+            ...n,
+            data: {
+              ...n.data,
+              onOpenWiki,
+              showWikiHint: n.type === 'cluster' ? showWikiHint : false,
+            },
+          }))
+        : positioned;
+      setNodes(withWiki);
       setEdges(nextEdges);
       // Frame the graph once, right after the first positioned layout lands.
       // Nodes now carry explicit width/height (from elk), so fitView can compute
@@ -106,7 +120,7 @@ function MapCanvasInner({
     return () => {
       cancelled = true;
     };
-  }, [data, index, expandedClusters, expandedModules, selectedNodeId, highlightedNodeIds, fitView]);
+  }, [data, index, expandedClusters, expandedModules, selectedNodeId, highlightedNodeIds, fitView, onOpenWiki, showWikiHint]);
 
   // Edge emphasis: on hover (or when a node is highlighted) light up the
   // connected edges in the source node's accent color and dim the rest. This
@@ -287,6 +301,10 @@ export interface MapCanvasProps {
   selectedNodeId: string | null;
   highlightedNodeIds: Set<string>;
   onSelectNode: (id: string | null) => void;
+  /** Open the rich module-wiki drawer for a node/cluster id. */
+  onOpenWiki?: (id: string) => void;
+  /** Show the first-run "click to open wiki" hint on cluster cards. */
+  showWikiHint?: boolean;
 }
 
 export function MapCanvas(props: MapCanvasProps) {

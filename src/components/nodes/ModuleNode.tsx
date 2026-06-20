@@ -12,9 +12,13 @@ import type { ModuleNodeData } from '../../lib/graph';
  */
 const STRIPE = 'bg-ph-node-component'; // module = blue
 
-function ModuleNodeImpl({ data, selected }: NodeProps) {
+function ModuleNodeImpl({ id, data, selected }: NodeProps) {
   const d = data as ModuleNodeData;
   const active = d.selected || selected;
+  const openWiki = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    d.onOpenWiki?.(id);
+  };
 
   if (d.expanded) {
     return (
@@ -104,6 +108,19 @@ function ModuleNodeImpl({ data, selected }: NodeProps) {
           </span>
         )}
       </div>
+
+      {/* Open-wiki affordance — appears on hover/selection so it stays calm. */}
+      {d.onOpenWiki && (
+        <button
+          onClick={openWiki}
+          className={[
+            'mt-2 flex w-full items-center justify-center gap-1 rounded-ph-sm border border-ph-yellow-pressed bg-ph-yellow px-2 py-1 font-sans text-[10px] font-bold text-ph-ink transition-all hover:bg-ph-yellow-pressed',
+            active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          ].join(' ')}
+        >
+          Open wiki →
+        </button>
+      )}
     </div>
   );
 }

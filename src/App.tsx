@@ -15,6 +15,8 @@ import { ChangesView } from './components/views/ChangesView';
 import { DatabaseView } from './components/views/DatabaseView';
 import { FunctionsView } from './components/views/FunctionsView';
 import type { ViewId, ViewProps } from './components/views/viewContract';
+import { ModuleWiki } from './components/wiki/ModuleWiki';
+import { useWikiStack } from './hooks/useWikiStack';
 
 // View registry — each entry maps a tab to a component that satisfies the
 // shared ViewProps contract (src/components/views/viewContract.ts). Wave B
@@ -30,6 +32,7 @@ const VIEWS: { id: ViewId; label: string; Component: (p: ViewProps) => JSX.Eleme
 ];
 
 const ONBOARD_KEY = 'lh-onboard-dismissed';
+const WIKI_ONBOARD_KEY = 'lh_onboarded';
 const QUERY_REPO_PATH_KEY = 'lh-query-repo-path';
 const QUERY_MODEL_KEY = 'lh-query-model';
 
@@ -62,6 +65,9 @@ export default function App() {
   // ── View switcher ──────────────────────────────────────────────────
   const [activeView, setActiveView] = useState<ViewId>('architecture');
 
+  // ── Module wiki drawer — history-stack navigation ───────────────────
+  const wikiStack = useWikiStack();
+
   // ── Onboarding hint bar — dismissable, once per session ─────────────
   const [showOnboard, setShowOnboard] = useState<boolean>(() => {
     try {
@@ -78,6 +84,15 @@ export default function App() {
       /* ignore */
     }
   }, []);
+
+  // ── Wiki onboarding (persistent across sessions, per spec lh_onboarded) ──
+  const [wikiOnboarded, setWikiOnboarded] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(WIKI_ONBOARD_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   // ── Cross-view state seams (preserved from prior phases) ────────────
   // selectedNodeId: the node the user clicked. The reading panel reads this
@@ -147,6 +162,42 @@ export default function App() {
     setHighlightedNodeIds(new Set());
   }, []);
 
+  // ── Wiki entry points ───────────────────────────────────────────────
+  // The single openWiki entry point used everywhere (node cards, reading
+  // panel header, files/deps/functions views). Opening also marks the user
+  // as onboarded so the first-load intro + cluster hints retire.
+  const markWikiOnboarded = useCallback(() => {
+    try {
+      localStorage.setItem(WIKI_ONBOARD_KEY, 'true');
+    } catch {
+      /* ignore */
+    }
+    setWikiOnboarded(true);
+  }, []);
+
+  const openWiki = useCallback(
+    (id: string) => {
+      wikiStack.open(id);
+      markWikiOnboarded();
+    },
+    [wikiStack, markWikiOnboarded],
+  );
+
+  // Neighbor / flow / PR cross-links push onto the history stack.
+  const navigateWiki = useCallback((id: string) => wikiStack.push(id), [wikiStack]);
+
+  // "Show on map": close the drawer, switch to Architecture, select + highlight.
+  const handleShowOnMap = useCallback(
+    (id: string) => {
+      wikiStack.close();
+      setActiveView('architecture');
+      setSelectedNodeId(id);
+      setActiveSectionId(null);
+      setHighlightedNodeIds(new Set([id]));
+    },
+    [wikiStack],
+  );
+
   const stats = useMemo(() => {
     if (!data) return null;
     const modules = data.nodes.filter((n) => n.kind === 'module').length;
@@ -207,7 +258,13 @@ export default function App() {
     highlightedNodeIds,
     onSelectNode: handleSelect,
     onHighlightNodes: handleHighlightNodes,
+    onOpenWiki: openWiki,
+    showWikiHint: !wikiOnboarded,
+    repoPath: queryRepoPath,
+    model: queryModel,
   };
+
+  const showWikiIntro = !wikiOnboarded && wikiStack.currentId === null;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-ph-canvas font-body text-ph-body">
@@ -300,6 +357,28 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <main className="relative min-w-0 flex-1">
           <ActiveComponent {...viewProps} />
+
+          {/* First-load wiki intro — invites opening a cluster wiki. */}
+          {showWikiIntro && activeView === 'architecture' && (
+            <div className="pointer-events-none absolute left-1/2 top-6 z-10 w-full max-w-[400px] -translate-x-1/2 px-4">
+              <div className="pointer-events-auto animate-fade-in rounded-ph border border-ph-border bg-ph-surface p-6 shadow-ph-float">
+                <p className="font-display text-heading-lg font-extrabold text-ph-ink">
+                  Your codebase, mapped.
+                </p>
+                <p className="mt-1 font-body text-body-sm leading-relaxed text-ph-mute">
+                  Each cluster is a feature area; each node is a module. Click any
+                  cluster to expand it, then open its wiki — structure,
+                  dependencies, recent changes, and prose docs in one place.
+                </p>
+                <div className="mt-3 flex items-center gap-2 font-body text-body-sm text-ph-body">
+                  <span className="text-ph-yellow" aria-hidden>
+                    ➤
+                  </span>
+                  <span>Click a cluster to start</span>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Reading panel — global for now (Wave A) */}
@@ -310,9 +389,19 @@ export default function App() {
             activeSectionId={activeSectionId}
             onActivateSection={handleActivateSection}
             onHighlightNodes={handleHighlightNodes}
+            onOpenWiki={openWiki}
           />
         </div>
       </div>
+
+      {/* ── Module wiki drawer — the rich deep-dive ─────────────────── */}
+      <ModuleWiki
+        data={data}
+        stack={wikiStack}
+        onNavigate={navigateWiki}
+        onClose={wikiStack.close}
+        onShowOnMap={handleShowOnMap}
+      />
     </div>
   );
 }

@@ -16,9 +16,13 @@ import type { ClusterNodeData } from '../../lib/graph';
  */
 const STRIPE = 'bg-ph-node-page'; // cluster = PostHog brand red (premium top level)
 
-function ClusterNodeImpl({ data, selected }: NodeProps) {
+function ClusterNodeImpl({ id, data, selected }: NodeProps) {
   const d = data as ClusterNodeData;
   const active = d.selected || selected;
+  const openWiki = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    d.onOpenWiki?.(id);
+  };
 
   if (d.expanded) {
     // Container frame — children are positioned inside by elk/React Flow.
@@ -107,6 +111,21 @@ function ClusterNodeImpl({ data, selected }: NodeProps) {
           expand →
         </span>
       </div>
+
+      {/* Open-wiki affordance — distinct from card click (which expands). */}
+      {d.onOpenWiki && (
+        <button
+          onClick={openWiki}
+          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-ph border border-ph-yellow-pressed bg-ph-yellow px-3 py-1.5 font-sans text-[11px] font-bold text-ph-ink transition-colors hover:bg-ph-yellow-pressed"
+        >
+          Open wiki →
+        </button>
+      )}
+      {d.showWikiHint && (
+        <div className="mt-1.5 text-center font-sans text-[10px] text-ph-ash">
+          Click to open wiki →
+        </div>
+      )}
     </div>
   );
 }

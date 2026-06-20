@@ -39,6 +39,8 @@ export interface ReadingPanelProps {
   onActivateSection: (sectionId: string | null) => void;
   /** Called when the panel wants to set the map highlight set. */
   onHighlightNodes: (ids: Set<string>) => void;
+  /** Open the rich module-wiki drawer for the given node id. */
+  onOpenWiki?: (id: string) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,7 +65,19 @@ export function ReadingPanel({
   activeSectionId,
   onActivateSection,
   onHighlightNodes,
+  onOpenWiki,
 }: ReadingPanelProps) {
+  // The node currently selected on the map (for the "Open wiki" header CTA).
+  const selectedNode = selectedNodeId
+    ? data.nodes.find((n) => n.id === selectedNodeId) ??
+      data.clusters.find((c) => c.id === selectedNodeId) ??
+      null
+    : null;
+  const selectedLabel = selectedNode
+    ? 'label' in selectedNode
+      ? selectedNode.label
+      : null
+    : null;
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
 
@@ -162,6 +176,15 @@ export function ReadingPanel({
         <div className="mt-0.5 font-display text-heading-md font-bold text-ph-ink">
           {data.repo.name}
         </div>
+        {selectedNodeId && selectedLabel && onOpenWiki && (
+          <button
+            onClick={() => onOpenWiki(selectedNodeId)}
+            className="mt-3 inline-flex w-full items-center justify-between gap-2 rounded-ph border border-ph-yellow-pressed bg-ph-yellow px-3 py-2 font-sans text-body-sm font-bold text-ph-ink transition-colors hover:bg-ph-yellow-pressed"
+          >
+            <span className="truncate">Open {selectedLabel} wiki</span>
+            <span aria-hidden>→</span>
+          </button>
+        )}
       </div>
 
       {/* Scrollable sections */}
