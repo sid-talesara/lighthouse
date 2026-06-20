@@ -30,6 +30,12 @@ SCHEMA (output must match exactly):
   ],
   "sections": [
     { "id": "string", "title": "string", "body_markdown": "string", "related_nodes": ["id"] }
+  ],
+  "functions": [
+    { "id": "string", "name": "string", "module_id": "node_id", "signature": "string", "summary": "string" }
+  ],
+  "calls": [
+    { "from": "function_id", "to": "function_id" }
   ]
 }
 
@@ -43,7 +49,9 @@ RULES
 7. Every id referenced in clusters.modules, nodes.parent, edges, flows.steps.node, and sections.related_nodes must exist as a node id or cluster id as appropriate for the field.
 8. Be accurate to the actual code. Do not invent files, paths, or capabilities you did not see.
 9. changed_recently must be true only for nodes whose files you can confirm were modified recently, such as git log changes in the last 14 days. Default false if uncertain.
-10. Output ONLY the JSON object. No markdown fences. No text before or after.`;
+10. Identify the ~20-40 most important exported functions across key files as "functions" ({id, name, module_id, signature, summary}) where module_id is one of your node ids. Give each function a stable unique id (e.g. moduleId_functionName). signature is a short one-line type signature; summary is one sentence.
+11. Capture "calls" edges ({from, to}) between those functions where one function invokes another. Both from and to must be ids that appear in functions. Include only edges you can confirm from the code; an empty array is acceptable if none are clear.
+12. Output ONLY the JSON object. No markdown fences. No text before or after.`;
 }
 
 export function buildQueryPrompt(input: {
