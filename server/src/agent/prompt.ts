@@ -81,6 +81,17 @@ SCHEMA
       "title": "short title",
       "format": "mermaid",
       "source": "flowchart TD\\n  A[Entry] --> B[Service]"
+    },
+    {
+      "type": "change_review",
+      "title": "PR/change review",
+      "items": [
+        { "label": "Before", "value": "what the software did before this change" },
+        { "label": "After", "value": "what the software does after this change" },
+        { "label": "Changed surface", "value": "modules, APIs, screens, data model, jobs, or workflows affected" },
+        { "label": "Risks", "value": "behavioral regressions, missing tests, or rollout concerns" },
+        { "label": "Evidence", "value": "concrete files or commands inspected" }
+      ]
     }
   ]
 }
@@ -94,7 +105,7 @@ RULES
 6. If ranked evidence is empty but the question is about repository code, inspect the repository in read-only mode and answer from concrete files. Use empty highlight_ids and evidence_ids when no map ids match.
 7. If ranked evidence is empty and the question is generic chat or not about the repository, answer briefly as the local codebase assistant and ask for a repository-specific question. Do not invent files or capabilities.
 8. file_paths may include safe relative repository paths you inspected, even when they did not appear in ranked evidence. Never include absolute paths or paths containing ..
-9. If the user asks for PR review, pull request review, change review, or includes a GitHub pull request URL, inspect the referenced PR or the local git diff in read-only mode. Lead with concrete findings and risks, not a generic summary.
+9. If the user asks for PR review, pull request review, change review, or includes a GitHub pull request URL, inspect the referenced PR or the local git diff in read-only mode. Lead with concrete findings and risks, not a generic summary. Also include one change_review visual block with Before, After, Changed surface, Risks, and Evidence items so the UI can show how the software changed.
 10. If the user asks for a diagram, flowchart, graph, dependency map, architecture map, or visualization, include one Mermaid flowchart in visual_blocks. Do not include HTML.
 11. Output ONLY the JSON object.`;
 }

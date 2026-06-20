@@ -117,32 +117,98 @@ function sanitizeMermaidSource(value: unknown): string | null {
   return source;
 }
 
-function sanitizeCodexVisualBlocks(rawBlocks: unknown): QueryVisualBlock[] {
+function sanitizeCodexVisualBlocks(
+  rawBlocks: unknown,
+  options: { repoPath: string; allowChangeReview: boolean },
+): QueryVisualBlock[] {
   if (!Array.isArray(rawBlocks)) return [];
 
   return rawBlocks.flatMap((block): QueryVisualBlock[] => {
     if (!block || typeof block !== "object") return [];
     const raw = block as Record<string, unknown>;
-    if (raw.type !== "diagram") return [];
-
-    const source = sanitizeMermaidSource(raw.source);
-    if (!source) return [];
 
     const title =
       typeof raw.title === "string" && raw.title.trim().length > 0
         ? raw.title.trim().slice(0, 80)
         : "Answer diagram";
 
-    return [
-      {
-        type: "diagram",
-        title,
-        format: "mermaid",
-        source,
-        items: [],
-      },
-    ];
+    if (raw.type === "diagram") {
+      const source = sanitizeMermaidSource(raw.source);
+      if (!source) return [];
+
+      return [
+        {
+          type: "diagram",
+          title,
+          format: "mermaid",
+          source,
+          items: [],
+        },
+      ];
+    }
+
+    if (raw.type === "change_review") {
+      if (!options.allowChangeReview) return [];
+
+      const rawItems = Array.isArray(raw.items) ? raw.items : [];
+      const items = rawItems.flatMap((item): QueryVisualBlock["items"] => {
+        if (!item || typeof item !== "object") return [];
+        const entry = item as Record<string, unknown>;
+        if (typeof entry.label !== "string" || entry.label.trim().length === 0) return [];
+        const value = typeof entry.value === "string" ? entry.value.replace(/\s+/g, " ").trim() : "";
+        if (!value) return [];
+        const pathValue = typeof entry.path === "string" && isSafeRepoRelativePath(options.repoPath, entry.path)
+          ? entry.path
+          : undefined;
+        return [
+          {
+            label: entry.label.trim().slice(0, 48),
+            value: value.slice(0, 700),
+            path: pathValue,
+          },
+        ];
+      });
+
+      if (items.length === 0) return [];
+      const labels = new Set(items.map((item) => item.label.toLowerCase()));
+      if (!labels.has("before") || !labels.has("after")) return [];
+
+      return [
+        {
+          type: "change_review",
+          title: title === "Answer diagram" ? "Change review" : title,
+          items: items.slice(0, 8),
+        },
+      ];
+    }
+
+    return [];
   });
+}
+
+function fallbackChangeReviewBlock(markdown: string): QueryVisualBlock {
+  return {
+    type: "change_review",
+    title: "Change review",
+    items: [
+      {
+        label: "Before",
+        value: "Local Codex did not return a separate before-state field. Read the findings above for the inferred previous behavior.",
+      },
+      {
+        label: "After",
+        value: "Local Codex did not return a separate after-state field. Read the findings above for the inferred new behavior.",
+      },
+      {
+        label: "Changed surface",
+        value: "See the evidence files and Codex activity for the modules, routes, schemas, or workflows inspected.",
+      },
+      {
+        label: "Risks",
+        value: markdown.replace(/\s+/g, " ").trim().slice(0, 700) || "No specific risk text was returned.",
+      },
+    ],
+  };
 }
 
 function sanitizeCodexAnswer(input: {
@@ -154,6 +220,7 @@ function sanitizeCodexAnswer(input: {
   directMode: boolean;
   directReason?: string;
   includeDiagram: boolean;
+  changeReview: boolean;
 }): QueryAnswer {
   const raw = input.raw && typeof input.raw === "object" ? (input.raw as Record<string, unknown>) : {};
   const evidenceById = new Map(input.evidence.map((item) => [item.id, item]));
@@ -183,7 +250,15 @@ function sanitizeCodexAnswer(input: {
     })
     : [];
   const filePaths = requestedPaths.length > 0 ? requestedPaths : filePathsFromEvidence(selectedEvidence);
-  const codexVisualBlocks = sanitizeCodexVisualBlocks(raw.visual_blocks);
+  const codexVisualBlocks = sanitizeCodexVisualBlocks(raw.visual_blocks, {
+    repoPath: input.repoPath,
+    allowChangeReview: input.changeReview,
+  });
+  const hasChangeReviewBlock = codexVisualBlocks.some((block) => block.type === "change_review");
+  const needsChangeReviewBlock = Boolean(input.directReason?.toLowerCase().includes("change review"));
+  const visualBlocks = needsChangeReviewBlock && !hasChangeReviewBlock
+    ? [fallbackChangeReviewBlock(markdown), ...codexVisualBlocks]
+    : codexVisualBlocks;
   const evidenceVisualBlocks = visualBlocksFromEvidence(selectedEvidence, { includeDiagram: input.includeDiagram });
 
   return {
@@ -197,7 +272,7 @@ function sanitizeCodexAnswer(input: {
     highlight_ids: highlightIds,
     evidence: selectedEvidence,
     file_paths: filePaths,
-    visual_blocks: codexVisualBlocks.length > 0 ? [...codexVisualBlocks, ...evidenceVisualBlocks] : evidenceVisualBlocks,
+    visual_blocks: visualBlocks.length > 0 ? [...visualBlocks, ...evidenceVisualBlocks] : evidenceVisualBlocks,
     query_events: input.events,
     repo_path_status: "valid",
   };
@@ -213,6 +288,7 @@ async function answerWithCodex(input: {
   directMode?: boolean;
   directReason?: string;
   includeDiagram?: boolean;
+  changeReview?: boolean;
 }): Promise<QueryAnswer> {
   const events: QueryAnswer["query_events"] = [];
   const prompt = buildQueryPrompt({
@@ -255,6 +331,7 @@ async function answerWithCodex(input: {
     directMode: Boolean(input.directMode),
     directReason: input.directReason,
     includeDiagram: Boolean(input.includeDiagram),
+    changeReview: Boolean(input.changeReview),
   });
 }
 
@@ -294,6 +371,7 @@ queryRouter.post("/query", async (req, res) => {
           directMode: true,
           directReason: "Local Codex used direct PR/change review mode and inspected repository changes.",
           includeDiagram,
+          changeReview: true,
           fallback: {
             ...fallback,
             attempted_codex: true,

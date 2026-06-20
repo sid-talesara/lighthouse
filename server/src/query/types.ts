@@ -13,7 +13,7 @@ export interface QueryEvidence {
 }
 
 export interface QueryVisualBlock {
-  type: "file_set" | "panel" | "diagram";
+  type: "file_set" | "panel" | "diagram" | "change_review";
   title: string;
   format?: "mermaid";
   source?: string;
