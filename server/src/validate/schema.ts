@@ -45,6 +45,12 @@ const SectionSchema = z.object({
   related_nodes: z.array(NonEmptyString),
 });
 
+const FileInventoryEntrySchema = z.object({
+  path: NonEmptyString,
+  language: NonEmptyString,
+  size_bytes: z.number().int().nonnegative(),
+});
+
 function addDuplicateIssues(
   ctx: z.RefinementCtx,
   values: string[],
@@ -77,6 +83,7 @@ export const LighthouseDataSchema = z
     edges: z.array(EdgeSchema),
     flows: z.array(FlowSchema),
     sections: z.array(SectionSchema),
+    files: z.array(FileInventoryEntrySchema).optional(),
   })
   .superRefine((data, ctx) => {
     const clusterIds = new Set(data.clusters.map((cluster) => cluster.id));

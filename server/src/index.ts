@@ -3,6 +3,7 @@ import express from "express";
 import { createServer } from "node:http";
 
 import { generateRouter } from "./routes/generate.js";
+import { queryRouter } from "./routes/query.js";
 
 const PORT = Number.parseInt(process.env.PORT ?? "3001", 10);
 const HOST = "127.0.0.1";
@@ -15,12 +16,13 @@ app.use(
     origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
   }),
 );
-app.use(express.json({ limit: "32kb" }));
+app.use(express.json({ limit: "2mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 app.use("/api", generateRouter);
+app.use("/api", queryRouter);
 
 const httpServer = createServer(app);
 httpServer.setTimeout(AGENT_TIMEOUT_MS);

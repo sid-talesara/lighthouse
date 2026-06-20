@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Request } from "express";
 import type { Response } from "express";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -7,9 +8,10 @@ import { fileURLToPath } from "node:url";
 import { z, ZodError } from "zod";
 
 import type { AgentProgressEventType } from "../agent/agent-types.js";
-import { AgentTimeoutError } from "../agent/agent-types.js";
+import { AgentCancelledError, AgentTimeoutError } from "../agent/agent-types.js";
 import { buildAnalysisPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
+import { indexTrackedFiles } from "../repo/tracked-files.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { validateRepoPath } from "../utils/path-safety.js";
 import { LighthouseDataSchema } from "../validate/schema.js";
@@ -43,7 +45,7 @@ const GenerateRequestSchema = z.object({
   model: OptionalModelSchema,
 });
 
-type GenerateJobStatus = "queued" | "running" | "done" | "error" | "timeout";
+type GenerateJobStatus = "queued" | "running" | "done" | "error" | "timeout" | "cancelled";
 
 interface GenerateProgressInput {
   type: AgentProgressEventType;
@@ -74,6 +76,7 @@ interface GenerateJob {
   updatedAt: string;
   startedAtMs: number;
   events: GenerateJobEvent[];
+  abortController: AbortController;
   error?: string;
   dataPath?: string;
 }
@@ -109,6 +112,7 @@ function formatError(error: unknown): string {
 
 function statusForError(error: unknown, message: string): number {
   if (error instanceof BadRequestError) return 400;
+  if (error instanceof AgentCancelledError) return 499;
   if (error instanceof AgentTimeoutError) return 504;
   return message.startsWith("repoPath") ? 400 : 500;
 }
@@ -197,6 +201,7 @@ function writeSseEvent(res: Response, eventName: string, data: unknown): void {
 async function runGeneration(options: {
   repoPath: string;
   model?: string;
+  signal?: AbortSignal;
   onProgress?: (event: GenerateProgressInput) => void;
 }): Promise<void> {
   const startedAtMs = Date.now();
@@ -220,6 +225,7 @@ async function runGeneration(options: {
     const rawResult = await runAgent({
       repoPath: options.repoPath,
       model: options.model,
+      signal: options.signal,
       prompt: buildAnalysisPrompt(),
       onProgress: (event) => {
         options.onProgress?.({
@@ -239,7 +245,24 @@ async function runGeneration(options: {
     });
     const jsonText = extractJson(rawResult);
     const parsed = JSON.parse(jsonText);
-    const validated = LighthouseDataSchema.parse(parsed);
+
+    phase = "indexing";
+    options.onProgress?.({
+      type: "status",
+      phase,
+      message: "Indexing tracked repository files.",
+    });
+    const indexedFiles = await indexTrackedFiles(options.repoPath);
+    options.onProgress?.({
+      type: "status",
+      phase,
+      message: `Indexed ${indexedFiles.length} tracked files.`,
+    });
+
+    const validated = LighthouseDataSchema.parse({
+      ...parsed,
+      files: indexedFiles,
+    });
 
     phase = "write";
     options.onProgress?.({
@@ -266,6 +289,7 @@ function startGenerateJob(repoPath: string, model?: string): GenerateJob {
     updatedAt: now,
     startedAtMs: Date.now(),
     events: [],
+    abortController: new AbortController(),
   };
   jobs.set(job.id, job);
   appendJobEvent(job, {
@@ -286,6 +310,7 @@ function startGenerateJob(repoPath: string, model?: string): GenerateJob {
       await runGeneration({
         repoPath,
         model,
+        signal: job.abortController.signal,
         onProgress: (event) => appendJobEvent(job, event),
       });
       job.status = "done";
@@ -298,11 +323,11 @@ function startGenerateJob(repoPath: string, model?: string): GenerateJob {
       });
     } catch (error) {
       const message = formatError(error);
-      job.status = error instanceof AgentTimeoutError ? "timeout" : "error";
+      job.status = error instanceof AgentCancelledError ? "cancelled" : error instanceof AgentTimeoutError ? "timeout" : "error";
       job.error = message;
       appendJobEvent(job, {
-        type: error instanceof AgentTimeoutError ? "timeout" : "error",
-        phase: error instanceof AgentTimeoutError ? "timeout" : "error",
+        type: error instanceof AgentCancelledError ? "cancelled" : error instanceof AgentTimeoutError ? "timeout" : "error",
+        phase: error instanceof AgentCancelledError ? "cancelled" : error instanceof AgentTimeoutError ? "timeout" : "error",
         error: message,
         message,
       });
@@ -314,9 +339,11 @@ function startGenerateJob(repoPath: string, model?: string): GenerateJob {
 }
 
 async function streamGenerationResponse(
+  req: Request,
   res: Response,
   options: { repoPath: string; model?: string },
 ): Promise<void> {
+  const abortController = new AbortController();
   const streamId = randomUUID();
   const startedAtMs = Date.now();
   let nextEventId = 1;
@@ -353,10 +380,15 @@ async function streamGenerationResponse(
     message: "Streaming generation started.",
   });
 
+  req.on("close", () => {
+    abortController.abort();
+  });
+
   try {
     await runGeneration({
       repoPath: options.repoPath,
       model: options.model,
+      signal: abortController.signal,
       onProgress: emit,
     });
     emit({
@@ -368,9 +400,10 @@ async function streamGenerationResponse(
   } catch (error) {
     const message = formatError(error);
     const timedOut = error instanceof AgentTimeoutError;
+    const cancelled = error instanceof AgentCancelledError;
     emit({
-      type: timedOut ? "timeout" : "error",
-      phase: timedOut ? "timeout" : "error",
+      type: cancelled ? "cancelled" : timedOut ? "timeout" : "error",
+      phase: cancelled ? "cancelled" : timedOut ? "timeout" : "error",
       error: message,
       message,
     });
@@ -384,17 +417,44 @@ generateRouter.post("/generate", async (req, res) => {
   try {
     const { repoPath, model } = parseGenerateRequest(req.body);
     if (wantsEventStream(req)) {
-      await streamGenerationResponse(res, { repoPath, model });
+      await streamGenerationResponse(req, res, { repoPath, model });
       return;
     }
 
-    await runGeneration({ repoPath, model });
+    const abortController = new AbortController();
+    req.on("close", () => abortController.abort());
+    await runGeneration({ repoPath, model, signal: abortController.signal });
     res.json({ ok: true, agent: "codex", dataPath: GENERATED_DATA_PATH });
   } catch (error) {
     const message = formatError(error);
     console.error("[companion] generate failed:", message);
     res.status(statusForError(error, message)).json({ error: message });
   }
+});
+
+generateRouter.post("/generate/jobs/:jobId/cancel", (req, res) => {
+  cleanupJobs();
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: "Generation job not found or expired." });
+    return;
+  }
+
+  if (job.status === "done" || job.status === "error" || job.status === "timeout" || job.status === "cancelled") {
+    res.json({ ok: true, jobId: job.id, status: job.status });
+    return;
+  }
+
+  job.abortController.abort();
+  job.status = "cancelled";
+  job.error = "Generation stopped by user.";
+  appendJobEvent(job, {
+    type: "cancelled",
+    phase: "cancelled",
+    error: job.error,
+    message: job.error,
+  });
+  res.json({ ok: true, jobId: job.id, status: job.status });
 });
 
 generateRouter.get("/data", (_req, res) => {
@@ -430,6 +490,7 @@ generateRouter.post("/generate/jobs", (req, res) => {
       status: job.status,
       eventsUrl: `/api/generate/jobs/${job.id}/events`,
       statusUrl: `/api/generate/jobs/${job.id}`,
+      cancelUrl: `/api/generate/jobs/${job.id}/cancel`,
     });
   } catch (error) {
     const message = formatError(error);
@@ -497,7 +558,12 @@ generateRouter.get("/generate/jobs/:jobId/events", (req, res) => {
       }
     }
 
-    if (currentJob.status === "done" || currentJob.status === "error" || currentJob.status === "timeout") {
+    if (
+      currentJob.status === "done" ||
+      currentJob.status === "error" ||
+      currentJob.status === "timeout" ||
+      currentJob.status === "cancelled"
+    ) {
       writeSseEvent(res, currentJob.status, {
         jobId: currentJob.id,
         status: currentJob.status,
