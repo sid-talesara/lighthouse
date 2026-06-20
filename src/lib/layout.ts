@@ -103,7 +103,14 @@ export async function layoutGraph(
       out.push({
         ...original,
         position: { x: elkNode.x ?? 0, y: elkNode.y ?? 0 },
-        // Give expanded groups an explicit size so the container renders large.
+        // Give EVERY node explicit dimensions. React Flow uses node.width/height
+        // as the node's known size before its DOM is measured — fitView and
+        // useNodesInitialized depend on it. Collapsed leaf cards previously had
+        // no declared size, so fitView saw zero-bounds for them and never framed
+        // the graph (the viewport stayed at the default zoom and most clusters
+        // sat off-screen). elk already computed the right sizes from LEAF_SIZE.
+        ...(width && height ? { width, height } : {}),
+        // Expanded groups also need a CSS size so the container box renders large.
         ...(isGroup && width && height
           ? { style: { ...original.style, width, height } }
           : {}),

@@ -26,6 +26,7 @@ import {
   useNodesState,
   useEdgesState,
   useReactFlow,
+  useNodesInitialized,
   ReactFlowProvider,
   Handle,
   Position,
@@ -209,7 +210,9 @@ function useDepGraph(
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const { fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
   const layoutDoneRef = useRef(false);
+  const didFitRef = useRef(false);
 
   // Stable callback so DepNodeComponent doesn't re-render on unrelated state
   const handleSelect = useCallback(
@@ -273,17 +276,24 @@ function useDepGraph(
   // Run elk layout once rawNodes/rawEdges change
   useLayoutEffect(() => {
     layoutDoneRef.current = false;
+    didFitRef.current = false;
     runElkLayout(rawNodes, rawEdges).then((laidOut) => {
       setNodes(laidOut);
       setEdges(rawEdges);
       layoutDoneRef.current = true;
-      // Fit after a tick so RF measures node sizes
-      // Cap maxZoom at 1.1 so labels are readable without manual zooming
-      requestAnimationFrame(() => {
-        fitView({ padding: 0.14, duration: 600, maxZoom: 1.1 } as FitViewOptions);
-      });
     });
-  }, [rawNodes, rawEdges, setNodes, setEdges, fitView]);
+  }, [rawNodes, rawEdges, setNodes, setEdges]);
+
+  // Frame the graph only after React Flow has measured every node. The old
+  // requestAnimationFrame(fitView) fired before measurement, so it framed an
+  // unmeasured graph and the viewport stayed at the default zoom — leaving most
+  // of the 31 nodes stacked/off-screen. Gate on nodesInitialized instead.
+  useEffect(() => {
+    if (didFitRef.current) return;
+    if (!nodesInitialized || nodes.length === 0) return;
+    fitView({ padding: 0.14, duration: 600, maxZoom: 1.1 } as FitViewOptions);
+    didFitRef.current = true;
+  }, [nodesInitialized, nodes.length, fitView]);
 
   // Recompute selection/dim visual state without re-running layout
   useEffect(() => {

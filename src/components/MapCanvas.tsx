@@ -8,6 +8,8 @@ import {
   MiniMap,
   MarkerType,
   useReactFlow,
+  useNodesState,
+  useEdgesState,
   type Node,
   type Edge,
   type NodeMouseHandler,
@@ -58,8 +60,12 @@ function MapCanvasInner({
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
 
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
+  // Use React Flow's state hooks (not plain useState) so onNodesChange /
+  // onEdgesChange are wired up. Without onNodesChange, React Flow's internal
+  // node-measurement changes are dropped and `measured` never populates, which
+  // keeps node sizing/positioning from settling cleanly.
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   // Which node the cursor is over — drives edge emphasis/dimming.
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const { fitView, setCenter, getNode, getZoom } = useReactFlow();
@@ -83,11 +89,24 @@ function MapCanvasInner({
       if (cancelled || token !== layoutToken.current) return;
       setNodes(positioned);
       setEdges(nextEdges);
+      // Frame the graph once, right after the first positioned layout lands.
+      // Nodes now carry explicit width/height (from elk), so fitView can compute
+      // correct bounds immediately — we don't have to wait on DOM measurement
+      // (useNodesInitialized proved unreliable for these custom nodes). Two
+      // rAFs let React Flow apply the new nodes before we fit.
+      if (!didInitialFit.current) {
+        didInitialFit.current = true;
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            void fitView({ padding: 0.18, duration: 600, maxZoom: 1.5, ease: easeInOutQuad });
+          }),
+        );
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [data, index, expandedClusters, expandedModules, selectedNodeId, highlightedNodeIds]);
+  }, [data, index, expandedClusters, expandedModules, selectedNodeId, highlightedNodeIds, fitView]);
 
   // Edge emphasis: on hover (or when a node is highlighted) light up the
   // connected edges in the source node's accent color and dim the rest. This
@@ -222,20 +241,13 @@ function MapCanvasInner({
     <ReactFlow
       nodes={nodes}
       edges={styledEdges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
       nodeTypes={nodeTypes}
       onNodeClick={onNodeClick}
       onNodeMouseEnter={onNodeMouseEnter}
       onNodeMouseLeave={onNodeMouseLeave}
       onPaneClick={onPaneClick}
-      onInit={() => {
-        // Frame the cluster graph nicely on first load with a gentle fly-in.
-        // Higher maxZoom so cards are comfortably readable on landing (the old
-        // 1.1 cap left them tiny on wide canvases).
-        window.setTimeout(() => {
-          void fitView({ padding: 0.18, duration: 600, maxZoom: 1.5, ease: easeInOutQuad });
-          didInitialFit.current = true;
-        }, 80);
-      }}
       nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable
