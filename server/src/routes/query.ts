@@ -326,7 +326,7 @@ queryRouter.post("/query", async (req, res) => {
     }
 
     if (evidence.length === 0) {
-      if (repo.repoPath && codeRelated) {
+      if (repo.repoPath) {
         try {
           const directAnswer = await answerWithCodex({
             question,
@@ -335,13 +335,17 @@ queryRouter.post("/query", async (req, res) => {
             evidence,
             signal: abortController.signal,
             directMode: true,
-            directReason: "Local Codex used direct read-only repository search because the map had no matching evidence.",
+            directReason: codeRelated
+              ? "Local Codex used direct read-only repository search because the map had no matching evidence."
+              : "Local Codex used direct read-only repository search because a valid repository path is configured.",
             includeDiagram,
             fallback: {
               ...fallback,
               attempted_codex: true,
               repo_path_status: "valid",
-              source_reason: "Local Codex used direct read-only repository search because the map had no matching evidence.",
+              source_reason: codeRelated
+                ? "Local Codex used direct read-only repository search because the map had no matching evidence."
+                : "Local Codex used direct read-only repository search because a valid repository path is configured.",
               indexing_mode: "local-codex-direct",
             },
           });
