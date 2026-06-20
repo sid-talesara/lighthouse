@@ -57,5 +57,6 @@ export type ViewId =
   | 'dependencies'
   | 'flows'
   | 'changes'
+  | 'services'
   | 'database'
   | 'functions';

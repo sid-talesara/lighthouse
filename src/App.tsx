@@ -14,9 +14,11 @@ import { FlowsView } from './components/views/FlowsView';
 import { ChangesView } from './components/views/ChangesView';
 import { DatabaseView } from './components/views/DatabaseView';
 import { FunctionsView } from './components/views/FunctionsView';
+import { ServicesView } from './components/views/ServicesView';
 import type { ViewId, ViewProps } from './components/views/viewContract';
 import { ModuleWiki } from './components/wiki/ModuleWiki';
 import { useWikiStack } from './hooks/useWikiStack';
+import { Onboarding } from './components/Onboarding';
 
 // View registry — each entry maps a tab to a component that satisfies the
 // shared ViewProps contract (src/components/views/viewContract.ts). Wave B
@@ -27,6 +29,7 @@ const VIEWS: { id: ViewId; label: string; Component: (p: ViewProps) => JSX.Eleme
   { id: 'dependencies', label: 'Dependencies', Component: DependenciesView },
   { id: 'flows', label: 'Flows', Component: FlowsView },
   { id: 'changes', label: 'Changes', Component: ChangesView },
+  { id: 'services', label: 'Services', Component: ServicesView },
   { id: 'database', label: 'Database', Component: DatabaseView },
   { id: 'functions', label: 'Functions', Component: FunctionsView },
 ];
@@ -35,6 +38,8 @@ const ONBOARD_KEY = 'lh-onboard-dismissed';
 const WIKI_ONBOARD_KEY = 'lh_onboarded';
 const QUERY_REPO_PATH_KEY = 'lh-query-repo-path';
 const QUERY_MODEL_KEY = 'lh-query-model';
+/** Persists across sessions: user has seen the landing and entered the app. */
+const LH_ENTERED_KEY = 'lh_entered';
 
 function readStoredRepoPath(): string {
   try {
@@ -61,6 +66,35 @@ export default function App() {
   const [reloadKey, setReloadKey] = useState(0);
   const [queryRepoPath, setQueryRepoPath] = useState(readStoredRepoPath);
   const [queryModel, setQueryModel] = useState<GenerateModel>(readStoredModel);
+
+  // ── Landing gate: show Onboarding until the user explicitly enters ──
+  const [entered, setEntered] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(LH_ENTERED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const handleEnter = useCallback(() => {
+    setEntered(true);
+    try {
+      localStorage.setItem(LH_ENTERED_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  // Clicking the Lighthouse logo in the top-bar returns to landing.
+  const handleReturnToLanding = useCallback(() => {
+    setEntered(false);
+    try {
+      localStorage.removeItem(LH_ENTERED_KEY);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Tracks whether we should auto-open the GeneratePanel after entering.
+  const [pendingGenerate, setPendingGenerate] = useState(false);
 
   // ── View switcher ──────────────────────────────────────────────────
   const [activeView, setActiveView] = useState<ViewId>('architecture');
@@ -211,6 +245,24 @@ export default function App() {
     return { modules, files, fileLabel };
   }, [data]);
 
+  // Auto-open generate panel when user enters via "Generate for another repo".
+  useEffect(() => {
+    if (!pendingGenerate || !entered) return;
+    // GeneratePanel renders a <button> with text "Generate" in the header.
+    // We give React one tick to mount the app shell before clicking it.
+    const timer = setTimeout(() => {
+      const btns = document.querySelectorAll<HTMLButtonElement>('header button');
+      for (const btn of btns) {
+        if (btn.textContent?.includes('Generate')) {
+          btn.click();
+          break;
+        }
+      }
+      setPendingGenerate(false);
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [pendingGenerate, entered]);
+
   // ── Error state ────────────────────────────────────────────────────
   if (error) {
     return (
@@ -236,6 +288,22 @@ export default function App() {
           </button>
         </div>
       </div>
+    );
+  }
+
+  // ── Landing gate ───────────────────────────────────────────────────
+  // Show the Onboarding screen until the user explicitly enters.
+  // We render it even before data is fully loaded — the component handles null.
+  if (!entered) {
+    return (
+      <Onboarding
+        data={data}
+        onEnter={handleEnter}
+        onGenerate={() => {
+          setPendingGenerate(true);
+          handleEnter();
+        }}
+      />
     );
   }
 
@@ -270,12 +338,16 @@ export default function App() {
     <div className="flex h-screen flex-col overflow-hidden bg-ph-canvas font-body text-ph-body">
       {/* ── Top bar: wordmark + ask box ────────────────────────────── */}
       <header className="z-20 flex shrink-0 items-center gap-4 border-b border-ph-border bg-ph-surface px-5 py-3">
-        <div className="flex shrink-0 items-center gap-2.5">
+        <button
+          onClick={handleReturnToLanding}
+          title="Back to landing"
+          className="flex shrink-0 items-center gap-2.5 rounded-ph-sm transition-opacity duration-75 hover:opacity-75"
+        >
           <LighthouseGlyph className="h-7 w-7 text-ph-yellow" />
           <span className="font-display text-heading-lg font-extrabold tracking-tight text-ph-ink">
             Lighthouse
           </span>
-        </div>
+        </button>
         <span className="hidden h-5 w-px bg-ph-border sm:block" />
         <div className="hidden min-w-0 flex-col sm:flex">
           <span className="truncate font-mono text-code text-ph-body">{data.repo.name}</span>
