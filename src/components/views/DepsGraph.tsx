@@ -79,28 +79,37 @@ export interface DepNodeData extends Record<string, unknown> {
 
 function DepNodeComponent({ id, data }: NodeProps) {
   const d = data as DepNodeData;
+
+  // Border: selected = ph-yellow, else darker olive #9B9C92 for legibility
+  const borderColor = d.isSelected ? '#F7A501' : '#9B9C92';
+  const borderWidth = d.isSelected ? '2px' : '1.5px';
+
+  // Shadow: always-on soft shadow so white cards are visible on cream canvas;
+  // selected adds a yellow focus ring
+  const boxShadow = d.isSelected
+    ? '0 1px 3px rgba(20,20,20,0.10), 0 1px 2px rgba(20,20,20,0.06), 0 0 0 3px rgba(247,165,1,0.25)'
+    : '0 1px 3px rgba(20,20,20,0.10), 0 1px 2px rgba(20,20,20,0.06)';
+
   return (
     <div
       onClick={() => d.onSelect(d.isSelected ? null : id)}
       style={{
-        minWidth: 150,
-        maxWidth: 200,
+        minWidth: 180,
+        maxWidth: 240,
         background: '#FFFFFF',
-        border: d.isSelected
-          ? '1.5px solid #2C84E0'
-          : '1px solid #BFC1B7',
+        border: `${borderWidth} solid ${borderColor}`,
         borderRadius: 6,
-        padding: '10px 14px 10px 18px',
+        padding: '10px 14px 10px 20px',
         position: 'relative',
         overflow: 'hidden',
-        opacity: d.isDimmed ? 0.25 : 1,
-        transition: 'opacity 150ms ease-out, border-color 120ms ease-out',
-        boxShadow: d.isSelected ? '0 0 0 3px rgba(44,132,224,0.15)' : 'none',
+        opacity: d.isDimmed ? 0.45 : 1,
+        transition: 'opacity 150ms ease-out, border-color 120ms ease-out, box-shadow 120ms ease-out',
+        boxShadow,
         cursor: 'pointer',
         fontFamily: '"Nunito", system-ui, sans-serif',
       }}
     >
-      {/* left accent stripe */}
+      {/* left accent stripe — always present, color by cluster */}
       <div
         style={{
           position: 'absolute',
@@ -112,16 +121,33 @@ function DepNodeComponent({ id, data }: NodeProps) {
           borderRadius: '6px 0 0 6px',
         }}
       />
+      {/* node label */}
       <div
         style={{
-          fontSize: 12,
-          fontWeight: 600,
+          fontSize: 13,
+          fontWeight: 700,
           color: '#151515',
-          lineHeight: 1.3,
+          lineHeight: 1.35,
           wordBreak: 'break-word',
+          marginBottom: 2,
         }}
       >
         {d.label}
+      </div>
+      {/* cluster / path in mono */}
+      <div
+        style={{
+          fontSize: 10,
+          fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
+          fontWeight: 400,
+          color: '#6C6E63',
+          lineHeight: 1.3,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {d.parent}
       </div>
       {/* react-flow connection handles — invisible */}
       <Handle type="target" position={Position.Left}  style={{ opacity: 0 }} />
@@ -151,8 +177,8 @@ async function runElkLayout(
     },
     children: rawNodes.map((n) => ({
       id: n.id,
-      width: 170,
-      height: 60,
+      width: 210,
+      height: 70,
     })),
     edges: rawEdges.map((e) => ({
       id: e.id,
@@ -252,8 +278,9 @@ function useDepGraph(
       setEdges(rawEdges);
       layoutDoneRef.current = true;
       // Fit after a tick so RF measures node sizes
+      // Cap maxZoom at 1.1 so labels are readable without manual zooming
       requestAnimationFrame(() => {
-        fitView({ padding: 0.12, duration: 600 } as FitViewOptions);
+        fitView({ padding: 0.14, duration: 600, maxZoom: 1.1 } as FitViewOptions);
       });
     });
   }, [rawNodes, rawEdges, setNodes, setEdges, fitView]);
@@ -438,7 +465,7 @@ function DepsGraphInner({
         onEdgesChange={onEdgesChange}
         nodeTypes={NODE_TYPES}
         fitView
-        fitViewOptions={{ padding: 0.12, duration: 600 }}
+        fitViewOptions={{ padding: 0.14, duration: 600, maxZoom: 1.1 }}
         minZoom={0.15}
         maxZoom={2.5}
         defaultViewport={{ x: 0, y: 0, zoom: 0.7 }}
@@ -450,8 +477,8 @@ function DepsGraphInner({
         <Background
           variant={BackgroundVariant.Dots}
           gap={20}
-          size={1}
-          color="#BFC1B7"
+          size={2.5}
+          color="#B4B6AC"
         />
         <Controls
           style={{
