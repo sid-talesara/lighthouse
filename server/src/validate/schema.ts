@@ -101,6 +101,35 @@ const CallEdgeSchema = z.object({
   to: NonEmptyString,
 });
 
+const ServiceKind = z.enum([
+  "frontend",
+  "backend",
+  "worker",
+  "realtime",
+  "gateway",
+  "db",
+  "external",
+  "other",
+]);
+const ServiceProtocol = z.enum(["http", "ws", "queue", "grpc", "db", "event", "other"]);
+
+const ServiceSchema = z.object({
+  id: NonEmptyString,
+  name: NonEmptyString,
+  kind: ServiceKind,
+  summary: z.string(),
+  path: z.string().optional(),
+  module_ids: z.array(NonEmptyString).optional(),
+  entrypoint: z.string().optional(),
+});
+
+const ServiceLinkSchema = z.object({
+  from: NonEmptyString,
+  to: NonEmptyString,
+  protocol: ServiceProtocol,
+  summary: z.string().optional(),
+});
+
 function addDuplicateIssues(
   ctx: z.RefinementCtx,
   values: string[],
@@ -138,6 +167,8 @@ export const LighthouseDataSchema = z
     dbTables: z.array(DbTableSchema).optional(),
     functions: z.array(FunctionNodeSchema).optional(),
     calls: z.array(CallEdgeSchema).optional(),
+    services: z.array(ServiceSchema).optional(),
+    serviceLinks: z.array(ServiceLinkSchema).optional(),
   })
   .superRefine((data, ctx) => {
     const clusterIds = new Set(data.clusters.map((cluster) => cluster.id));

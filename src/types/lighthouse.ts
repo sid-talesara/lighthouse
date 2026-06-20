@@ -109,6 +109,37 @@ export interface CallEdge {
   to: string; // function id
 }
 
+// ── Service-architecture dimension ────────────────────────────────────────────
+
+export type ServiceKind =
+  | 'frontend'
+  | 'backend'
+  | 'worker'
+  | 'realtime'
+  | 'gateway'
+  | 'db'
+  | 'external'
+  | 'other';
+
+export interface Service {
+  id: string;
+  name: string;
+  kind: ServiceKind;
+  summary: string;
+  path?: string; // relative dir of the deployable service
+  module_ids?: string[]; // node ids that belong to this service
+  entrypoint?: string; // relative path to the service entrypoint
+}
+
+export type ServiceProtocol = 'http' | 'ws' | 'queue' | 'grpc' | 'db' | 'event' | 'other';
+
+export interface ServiceLink {
+  from: string; // service id
+  to: string; // service id
+  protocol: ServiceProtocol;
+  summary?: string;
+}
+
 export interface LighthouseData {
   repo: Repo;
   files?: IndexedFile[];
@@ -122,4 +153,6 @@ export interface LighthouseData {
   dbTables?: DbTable[];
   functions?: FunctionNode[];
   calls?: CallEdge[];
+  services?: Service[];
+  serviceLinks?: ServiceLink[];
 }

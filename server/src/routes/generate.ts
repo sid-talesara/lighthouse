@@ -13,6 +13,7 @@ import { buildAnalysisPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
 import { extractDbTables } from "../repo/db-schema.js";
 import { extractPullRequests } from "../repo/git-log.js";
+import { deriveServices } from "../repo/services.js";
 import { indexTrackedFiles } from "../repo/tracked-files.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { validateRepoPath } from "../utils/path-safety.js";
@@ -269,6 +270,8 @@ async function runGeneration(options: {
     });
 
     const parsedNodes = Array.isArray(parsed?.nodes) ? parsed.nodes : [];
+    const parsedClusters = Array.isArray(parsed?.clusters) ? parsed.clusters : [];
+    const parsedEdges = Array.isArray(parsed?.edges) ? parsed.edges : [];
 
     // pullRequests — derived deterministically from git history, mapped to nodes.
     let pullRequests: unknown[] | undefined;
@@ -303,11 +306,37 @@ async function runGeneration(options: {
       console.error("[companion] dbTables extraction failed:", formatError(error));
     }
 
+    // services / serviceLinks — derived deterministically from repo structure.
+    let services: unknown[] | undefined;
+    let serviceLinks: unknown[] | undefined;
+    try {
+      const derived = await deriveServices(
+        options.repoPath,
+        indexedFiles,
+        parsedNodes,
+        parsedClusters,
+        parsedEdges,
+      );
+      if (derived.services.length > 0) {
+        services = derived.services;
+        serviceLinks = derived.serviceLinks;
+      }
+      options.onProgress?.({
+        type: "status",
+        phase,
+        message: `Derived ${derived.services.length} services and ${derived.serviceLinks.length} service links.`,
+      });
+    } catch (error) {
+      console.error("[companion] services derivation failed:", formatError(error));
+    }
+
     const validated = LighthouseDataSchema.parse({
       ...parsed,
       files: indexedFiles,
       ...(pullRequests ? { pullRequests } : {}),
       ...(dbTables ? { dbTables } : {}),
+      ...(services ? { services } : {}),
+      ...(serviceLinks ? { serviceLinks } : {}),
     });
 
     phase = "write";

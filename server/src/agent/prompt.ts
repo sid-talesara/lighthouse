@@ -36,6 +36,12 @@ SCHEMA (output must match exactly):
   ],
   "calls": [
     { "from": "function_id", "to": "function_id" }
+  ],
+  "services": [
+    { "id": "string", "name": "string", "kind": "frontend" | "backend" | "worker" | "realtime" | "gateway" | "db" | "external" | "other", "summary": "string", "path": "relative/dir", "module_ids": ["node_id"], "entrypoint": "relative/path" }
+  ],
+  "serviceLinks": [
+    { "from": "service_id", "to": "service_id", "protocol": "http" | "ws" | "queue" | "grpc" | "db" | "event" | "other", "summary": "string" }
   ]
 }
 
@@ -51,7 +57,8 @@ RULES
 9. changed_recently must be true only for nodes whose files you can confirm were modified recently, such as git log changes in the last 14 days. Default false if uncertain.
 10. Identify the ~20-40 most important exported functions across key files as "functions" ({id, name, module_id, signature, summary}) where module_id is one of your node ids. Give each function a stable unique id (e.g. moduleId_functionName). signature is a short one-line type signature; summary is one sentence.
 11. Capture "calls" edges ({from, to}) between those functions where one function invokes another. Both from and to must be ids that appear in functions. Include only edges you can confirm from the code; an empty array is acceptable if none are clear.
-12. Output ONLY the JSON object. No markdown fences. No text before or after.`;
+12. OPTIONAL: identify deployable "services" (e.g. apps/* in a monorepo, distinct servers, frontends, workers, realtime servers) with a kind, one-line summary, path, and module_ids (your node ids that belong to the service). Add "serviceLinks" describing how services talk to each other with a protocol (http/ws/queue/grpc/db/event). This is optional enrichment; omit or leave empty arrays if the repo is a single service or unclear.
+13. Output ONLY the JSON object. No markdown fences. No text before or after.`;
 }
 
 export function buildQueryPrompt(input: {
