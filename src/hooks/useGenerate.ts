@@ -14,6 +14,8 @@ const EVENT_STREAM_STATUS_CHECK_ATTEMPTS = 3;
 const EVENT_STREAM_STATUS_CHECK_DELAY_MS = 750;
 const GENERATE_JOBS_ENDPOINT = '/api/generate/jobs';
 const LEGACY_GENERATE_ENDPOINT = '/api/generate';
+const COMPANION_SERVER_ERROR_MESSAGE =
+  'Companion server failed or is not reachable. Make sure npm run dev:server is running.';
 
 interface GenerateErrorResponse {
   error?: string;
@@ -75,12 +77,21 @@ interface GenerateJobStatusResponse extends GenerateSnapshotEvent {
 
 async function readErrorMessage(response: Response): Promise<string> {
   try {
-    const body = (await response.json()) as GenerateErrorResponse;
+    const body = (await response.clone().json()) as GenerateErrorResponse;
     if (body.error) return body.error;
     if (body.message) return body.message;
   } catch {
-    // Fall through to the generic response status below.
+    if (response.status >= 500) return COMPANION_SERVER_ERROR_MESSAGE;
+
+    try {
+      const text = (await response.text()).replace(/\s+/g, ' ').trim();
+      if (text) return text.length <= 240 ? text : `${text.slice(0, 237)}...`;
+    } catch {
+      // Fall through to the generic response status below.
+    }
   }
+
+  if (response.status >= 500) return COMPANION_SERVER_ERROR_MESSAGE;
   return `Generate failed: ${response.status} ${response.statusText}`;
 }
 
@@ -503,6 +514,9 @@ export function useGenerate(onDone: () => void) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           setError('Generate request timed out locally after 6 minutes. Check the companion server logs.');
           setStage('Timed out');
+        } else if (err instanceof TypeError && err.message === 'Failed to fetch') {
+          setError(COMPANION_SERVER_ERROR_MESSAGE);
+          setStage('Generate failed');
         } else {
           setError(err instanceof Error ? err.message : String(err));
           setStage('Generate failed');

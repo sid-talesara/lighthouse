@@ -138,7 +138,6 @@ export function GeneratePanel({ onDone }: GeneratePanelProps) {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <span className="min-w-0 break-words">
-                            {event.codexType ? `${event.codexType}: ` : ''}
                             {event.message}
                           </span>
                           <span className="shrink-0 text-ph-ash">

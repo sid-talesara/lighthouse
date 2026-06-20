@@ -26,6 +26,7 @@ const REQUIRED_CODEX_EXEC_FLAGS = [
 ];
 
 let codexFlagCheck: Promise<void> | null = null;
+let codexSupportsIgnoreUserConfig = false;
 
 async function ensureCodexExecSupportsRequiredFlags(
   codexBin: string,
@@ -69,6 +70,8 @@ async function ensureCodexExecSupportsRequiredFlags(
         `codex exec does not expose required non-interactive flags: ${missingExec.join(", ")}`,
       );
     }
+
+    codexSupportsIgnoreUserConfig = execHelpText.includes("--ignore-user-config");
   });
 
   return codexFlagCheck;
@@ -79,6 +82,11 @@ function buildCodexArgs(repoPath: string, outputPath: string, model?: string): s
     "--ask-for-approval",
     "never",
     "exec",
+  ];
+
+  if (codexSupportsIgnoreUserConfig) args.push("--ignore-user-config");
+
+  args.push(
     "--cd",
     repoPath,
     "--model",
@@ -94,7 +102,7 @@ function buildCodexArgs(repoPath: string, outputPath: string, model?: string): s
     "--json",
     "--output-last-message",
     outputPath,
-  ];
+  );
 
   args.push("-");
   return args;
@@ -117,16 +125,40 @@ function emitProgress(
 }
 
 function redactSensitiveText(value: string): string {
-  return value.replace(
-    /\b(api[_-]?key|authorization|bearer|password|secret|token)\b\s*[:=]\s*("[^"]+"|'[^']+'|\S+)/gi,
-    "$1=[redacted]",
-  );
+  return value
+    .replace(
+      /\b(api[_-]?key|authorization|password|secret|token)\b\s*[:=]\s*("[^"]+"|'[^']+'|\S+)/gi,
+      "$1=[redacted]",
+    )
+    .replace(/\bBearer\s+[-._~+/A-Za-z0-9]+=*/gi, "Bearer [redacted]");
 }
 
 function compactText(value: string, maxLength = 1_200): string {
   const text = redactSensitiveText(value).replace(/\s+/g, " ").trim();
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength - 1)}...`;
+}
+
+function isKnownCodexNoise(message: string): boolean {
+  return /\brmcp::|mcp\.[\w.-]+|\bAuthRequired\b|codex_core_plugins::manifest|codex_core_skills::loader|codex_rollout::list|failed to load skill|ignoring interface\.|log-loader|plugin/i.test(
+    message,
+  );
+}
+
+function normalizeCodexFailureMessage(message: string): string {
+  const redacted = redactSensitiveText(message);
+  if (!isKnownCodexNoise(redacted)) return compactText(redacted, 600);
+
+  const filtered = redacted
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !isKnownCodexNoise(line))
+    .join(" ");
+
+  return (
+    compactText(filtered, 600) ||
+    "Codex exited unsuccessfully after plugin/tool setup noise. Check Codex CLI authentication and retry."
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -172,15 +204,74 @@ function extractCodexMessage(event: Record<string, unknown>): string {
 
   if (directText) return compactText(directText);
 
-  if (type === "thread.started") return "Codex session started.";
-  if (type === "turn.started") return "Codex turn started.";
-  if (type === "turn.completed") return "Codex turn completed.";
+  if (type === "thread.started") return "Starting Codex session.";
+  if (type === "turn.started") return "Analyzing repository.";
+  if (type === "turn.completed") return "Repository analysis complete.";
 
   const itemType = typeof item?.type === "string" ? item.type : null;
   if (type === "item.started" && itemType) return `Codex started ${itemType}.`;
   if (type === "item.completed" && itemType) return `Codex completed ${itemType}.`;
 
   return type;
+}
+
+interface NormalizedCodexProgressEvent {
+  type: AgentProgressEvent["type"];
+  message: string;
+  codexType?: string;
+}
+
+interface NormalizedStderrChunk {
+  type: AgentProgressEvent["type"];
+  message: string;
+  suppressionKey?: string;
+}
+
+export function normalizeCodexProgressEvent(
+  event: Record<string, unknown>,
+): NormalizedCodexProgressEvent | null {
+  const codexType = typeof event.type === "string" ? event.type : undefined;
+  const item = asRecord(event.item);
+  const itemType = typeof item?.type === "string" ? item.type : null;
+
+  if (
+    (codexType === "item.started" || codexType === "item.completed") &&
+    itemType === "command_execution"
+  ) {
+    return null;
+  }
+
+  return {
+    type: "codex",
+    codexType,
+    message: extractCodexMessage(event),
+  };
+}
+
+export function normalizeCodexStderrChunk(chunk: string): NormalizedStderrChunk | null {
+  const message = compactText(chunk, 600);
+  if (!message) return null;
+
+  const isMcpAuthNoise =
+    /\bAuthRequired\b/i.test(message) ||
+    (/mcp/i.test(message) && /\b(401|unauthorized|authentication|auth required)\b/i.test(message));
+
+  if (isMcpAuthNoise) {
+    return {
+      type: "status",
+      suppressionKey: "mcp-auth",
+      message: "An optional Codex integration needs authentication; continuing.",
+    };
+  }
+
+  if (isKnownCodexNoise(message)) {
+    return null;
+  }
+
+  return {
+    type: "stderr",
+    message,
+  };
 }
 
 class JsonLineBuffer {
@@ -220,12 +311,8 @@ function handleCodexJsonLine(
       return;
     }
 
-    const codexType = typeof event.type === "string" ? event.type : undefined;
-    emitProgress(onProgress, startedAt, {
-      type: "codex",
-      codexType,
-      message: extractCodexMessage(event),
-    });
+    const normalized = normalizeCodexProgressEvent(event);
+    if (normalized) emitProgress(onProgress, startedAt, normalized);
   } catch {
     emitProgress(onProgress, startedAt, {
       type: "stdout",
@@ -267,6 +354,7 @@ export const codexAgentRunner: AgentRunner = {
     const tempDir = await mkdtemp(join(tmpdir(), "lighthouse-codex-"));
     const outputPath = join(tempDir, "last-message.txt");
     const jsonLines = new JsonLineBuffer();
+    const emittedStderrNotices = new Set<string>();
 
     try {
       emitProgress(onProgress, startedAt, {
@@ -285,13 +373,20 @@ export const codexAgentRunner: AgentRunner = {
           jsonLines.push(chunk, (line) => handleCodexJsonLine(line, onProgress, startedAt));
         },
         onStderrChunk: (chunk) => {
-          const text = chunk.trim();
-          if (!text) return;
+          const normalized = normalizeCodexStderrChunk(chunk);
+          if (!normalized) return;
+          if (normalized.suppressionKey) {
+            if (emittedStderrNotices.has(normalized.suppressionKey)) return;
+            emittedStderrNotices.add(normalized.suppressionKey);
+          }
           emitProgress(onProgress, startedAt, {
-            type: "stderr",
-            message: compactText(text),
+            type: normalized.type,
+            message: normalized.message,
           });
         },
+      }).catch((error: unknown) => {
+        if (error instanceof Error) throw new Error(normalizeCodexFailureMessage(error.message));
+        throw error;
       });
       jsonLines.flush((line) => handleCodexJsonLine(line, onProgress, startedAt));
 
