@@ -5,7 +5,7 @@ import {
   type GenerateModel,
 } from '../lib/generateOptions';
 
-export type GenerateStatus = 'idle' | 'running' | 'done' | 'error';
+export type GenerateStatus = 'idle' | 'running' | 'done' | 'error' | 'cancelled';
 export type GenerateEventType = 'status' | 'stdout' | 'stderr' | 'codex' | 'client';
 
 const GENERATE_REQUEST_TIMEOUT_MS = 6 * 60 * 1000;
@@ -29,9 +29,10 @@ interface GenerateSuccessResponse {
   jobId?: string;
   eventsUrl?: string;
   statusUrl?: string;
+  cancelUrl?: string;
 }
 
-type GenerateJobStatus = 'queued' | 'running' | 'done' | 'error' | 'timeout';
+type GenerateJobStatus = 'queued' | 'running' | 'done' | 'error' | 'timeout' | 'cancelled';
 
 interface GenerateRequestOptions {
   repoPath: string;
@@ -163,8 +164,8 @@ function getGenerateJobStatusUrl(body: GenerateSuccessResponse): string | null {
   );
 }
 
-function isTerminalJobStatus(status: string | undefined): status is 'done' | 'error' | 'timeout' {
-  return status === 'done' || status === 'error' || status === 'timeout';
+function isTerminalJobStatus(status: string | undefined): status is 'done' | 'error' | 'timeout' | 'cancelled' {
+  return status === 'done' || status === 'error' || status === 'timeout' || status === 'cancelled';
 }
 
 function wait(ms: number): Promise<void> {
@@ -180,6 +181,7 @@ export function useGenerate(onDone: () => void) {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [stage, setStage] = useState('Ready');
   const [events, setEvents] = useState<GenerateEventLogEntry[]>([]);
+  const [activeCancelUrl, setActiveCancelUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (status !== 'running' || startedAt === null) return undefined;
@@ -287,6 +289,11 @@ export function useGenerate(onDone: () => void) {
             return true;
           }
 
+          if (statusValue === 'cancelled') {
+            finishError(errorMessage || 'Generate stopped.');
+            return true;
+          }
+
           finishError(
             errorMessage ||
               (statusValue === 'timeout'
@@ -384,6 +391,12 @@ export function useGenerate(onDone: () => void) {
               return;
             }
 
+            if (eventType === 'cancelled') {
+              const cancelPayload = parsed as IncomingGenerateEvent;
+              finishError(cancelPayload.error || cancelPayload.message || 'Generate stopped.');
+              return;
+            }
+
             if (eventType === 'error' || eventType === 'timeout') {
               const errorPayload = parsed as IncomingGenerateEvent;
               finishError(
@@ -416,6 +429,7 @@ export function useGenerate(onDone: () => void) {
         eventSource.addEventListener('snapshot', handleProgressMessage);
         eventSource.addEventListener('progress', handleProgressMessage);
         eventSource.addEventListener('done', handleProgressMessage);
+        eventSource.addEventListener('cancelled', handleProgressMessage);
         eventSource.addEventListener('timeout', handleProgressMessage);
         eventSource.addEventListener('error', (event) => {
           if (event instanceof MessageEvent && event.data) {
@@ -444,6 +458,7 @@ export function useGenerate(onDone: () => void) {
       setElapsedMs(0);
       setStage('Starting local Codex');
       setEvents([]);
+      setActiveCancelUrl(null);
 
       const controller = new AbortController();
       const timeout = window.setTimeout(() => {
@@ -462,7 +477,13 @@ export function useGenerate(onDone: () => void) {
           throw new Error(await readErrorMessage(response));
         }
 
-        return readSuccessBody(response);
+        const body = await readSuccessBody(response);
+        if (body.jobId || body.cancelUrl) {
+          setActiveCancelUrl(
+            body.cancelUrl || `/api/generate/jobs/${encodeURIComponent(body.jobId!)}/cancel`,
+          );
+        }
+        return body;
       };
 
       const startAsyncJob = async (): Promise<GenerateSuccessResponse> => {
@@ -508,8 +529,23 @@ export function useGenerate(onDone: () => void) {
         });
         setStatus('done');
         setStage('Map updated');
+        setActiveCancelUrl(null);
         onDone();
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.toLowerCase().includes('stopped')) {
+          setStatus('cancelled');
+          setError(null);
+          setStage('Stopped');
+          appendEvent({
+            type: 'client',
+            message: 'Generate stopped',
+            elapsedMs: Date.now() - requestStartedAt,
+            at: new Date().toISOString(),
+          });
+          return;
+        }
+
         setStatus('error');
         if (err instanceof DOMException && err.name === 'AbortError') {
           setError('Generate request timed out locally after 6 minutes. Check the companion server logs.');
@@ -522,6 +558,7 @@ export function useGenerate(onDone: () => void) {
           setStage('Generate failed');
         }
       } finally {
+        setActiveCancelUrl(null);
         window.clearTimeout(timeout);
       }
     },
@@ -535,7 +572,26 @@ export function useGenerate(onDone: () => void) {
     setElapsedMs(0);
     setStage('Ready');
     setEvents([]);
+    setActiveCancelUrl(null);
   }, []);
+
+  const cancel = useCallback(async () => {
+    if (status !== 'running') return;
+    const cancelUrl = activeCancelUrl;
+
+    if (cancelUrl) {
+      try {
+        await fetch(cancelUrl, { method: 'POST' });
+      } catch {
+        // The event stream/status poll will surface the final state if reachable.
+      }
+    }
+
+    setStatus('cancelled');
+    setError(null);
+    setStage('Stopping...');
+    setActiveCancelUrl(null);
+  }, [activeCancelUrl, status]);
 
   return {
     status,
@@ -545,6 +601,7 @@ export function useGenerate(onDone: () => void) {
     stage,
     events,
     generate,
+    cancel,
     reset,
   };
 }

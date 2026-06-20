@@ -29,6 +29,18 @@ function validate(raw: unknown, source: string): LighthouseData {
   if (!isString(repo['name'])) throw new Error(`${source}: repo.name must be a string`);
   if (!isString(repo['description'])) throw new Error(`${source}: repo.description must be a string`);
 
+  // Optional full deterministic file inventory. Older seed data may not have it.
+  if (d['files'] !== undefined) {
+    if (!Array.isArray(d['files'])) throw new Error(`${source}: files must be an array`);
+    for (const f of d['files'] as unknown[]) {
+      const file = f as Record<string, unknown>;
+      if (!isString(file['path'])) throw new Error(`${source}: file missing path`);
+      if (!isString(file['language'])) throw new Error(`${source}: file ${String(file['path'])} missing language`);
+      if (typeof file['size_bytes'] !== 'number')
+        throw new Error(`${source}: file ${String(file['path'])} size_bytes must be a number`);
+    }
+  }
+
   // clusters
   if (!Array.isArray(d['clusters'])) throw new Error(`${source}: clusters must be an array`);
   for (const c of d['clusters'] as unknown[]) {
