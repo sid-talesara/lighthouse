@@ -16,6 +16,10 @@ export interface ClusterNodeData extends Record<string, unknown> {
   highlighted: boolean;
   selected: boolean;
   dimmed: boolean;
+  /** Injected by MapCanvas — opens the module-wiki drawer. */
+  onOpenWiki?: (id: string) => void;
+  /** Whether to show the "click to open wiki" first-run hint. */
+  showWikiHint?: boolean;
 }
 
 export interface ModuleNodeData extends Record<string, unknown> {
@@ -29,6 +33,8 @@ export interface ModuleNodeData extends Record<string, unknown> {
   highlighted: boolean;
   selected: boolean;
   dimmed: boolean;
+  /** Injected by MapCanvas — opens the module-wiki drawer. */
+  onOpenWiki?: (id: string) => void;
 }
 
 export interface FileNodeData extends Record<string, unknown> {
