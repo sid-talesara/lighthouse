@@ -1,444 +1,845 @@
 {
   "repo": {
-    "name": "outline",
-    "description": "A team knowledge base and collaborative wiki: a real-time, ProseMirror-based document editor backed by a Node/Koa API, Postgres/Sequelize models, Redis-backed queues, and a React/MobX single-page app."
+    "name": "supatest-v0",
+    "description": "Supatest is a monorepo for an autonomous UI testing platform with a React frontend, Express API, browser recording extensions, BullMQ-based execution workers, Python Playwright runner, shared schemas, and supporting agent, email, CLI, and marketing packages."
   },
   "clusters": [
     {
-      "id": "frontend",
-      "label": "Frontend App Shell",
-      "summary": "The React + MobX single-page application that renders the UI, manages client state, and talks to the API.",
-      "modules": ["mod_app_entry", "mod_scenes", "mod_stores", "mod_app_models", "mod_components"]
+      "id": "cluster_web_experience",
+      "label": "Test Management Web Experience",
+      "summary": "Delivers the authenticated React application for managing tests, plans, runs, dashboards, issues, environments, and the no-code editor.",
+      "modules": [
+        "mod_frontend_app_shell",
+        "mod_frontend_test_management",
+        "mod_frontend_no_code_editor",
+        "mod_frontend_ai_dashboard",
+        "mod_ui_design_system"
+      ]
     },
     {
-      "id": "editor",
-      "label": "Document Editing & Collaboration UI",
-      "summary": "The shared ProseMirror-based rich-text editor schema plus the client editor that wires it into the app.",
-      "modules": ["mod_shared_editor", "mod_app_editor"]
+      "id": "cluster_api_platform",
+      "label": "Authenticated API Platform",
+      "summary": "Exposes the core HTTP API, auth middleware, public endpoints, controllers, and request-level services used by the web app and integrations.",
+      "modules": [
+        "mod_api_server",
+        "mod_api_domain_controllers",
+        "mod_api_auth_middleware",
+        "mod_public_api"
+      ]
     },
     {
-      "id": "api",
-      "label": "API Layer",
-      "summary": "The Koa HTTP server and versioned JSON API endpoints, middlewares, presenters, and command/business logic.",
-      "modules": ["mod_server_entry", "mod_api_routes", "mod_middlewares", "mod_commands", "mod_presenters", "mod_policies"]
+      "id": "cluster_execution",
+      "label": "Test Execution Orchestration",
+      "summary": "Queues, schedules, runs, and post-processes automated browser tests across regional workers and the Python Playwright runtime.",
+      "modules": [
+        "mod_execution_queues",
+        "mod_execution_workers",
+        "mod_execution_run_services",
+        "mod_python_runner",
+        "mod_execution_artifacts"
+      ]
     },
     {
-      "id": "auth",
-      "label": "Authentication & Access",
-      "summary": "Passport-based login, OAuth provider plugins, session middleware, and account provisioning.",
-      "modules": ["mod_auth_routes", "mod_passport", "mod_oauth", "mod_auth_providers"]
+      "id": "cluster_recording_realtime",
+      "label": "Recording And Realtime Browser Control",
+      "summary": "Captures browser actions, screenshots, element-picking state, and realtime result streams through Chrome extensions and Socket.IO.",
+      "modules": [
+        "mod_ws_server",
+        "mod_extension_background",
+        "mod_extension_content",
+        "mod_recorder_engine"
+      ]
     },
     {
-      "id": "realtime",
-      "label": "Real-time Sync & Background Jobs",
-      "summary": "Hocuspocus collaboration server, websocket fan-out, and the Redis-backed queue processors and tasks.",
-      "modules": ["mod_collaboration", "mod_websockets", "mod_queues", "mod_services"]
+      "id": "cluster_ai_generation",
+      "label": "AI Test Generation And Healing",
+      "summary": "Uses LLM services to generate DSL steps, Playwright Python code, chat-based test plans, readable logs, prompts, and failure analysis.",
+      "modules": [
+        "mod_ai_step_generation",
+        "mod_ai_code_generation",
+        "mod_ai_chat",
+        "mod_ai_failure_healing"
+      ]
     },
     {
-      "id": "data",
-      "label": "Data & Models",
-      "summary": "Sequelize models, database connection, and migrations defining the persisted domain.",
-      "modules": ["mod_models", "mod_database", "mod_migrations"]
+      "id": "cluster_data_contracts",
+      "label": "Data Contracts And Persistence",
+      "summary": "Defines shared TypeScript/Zod contracts, Drizzle table models, database access, migrations, and cross-package constants.",
+      "modules": [
+        "mod_shared_contracts",
+        "mod_db_models",
+        "mod_db_client_migrations",
+        "mod_environment_config"
+      ]
     },
     {
-      "id": "storage",
-      "label": "Storage & Attachments",
-      "summary": "Pluggable file storage (local/S3) for attachments, avatars, imports, and exports.",
-      "modules": ["mod_storage_core", "mod_storage_plugin"]
+      "id": "cluster_supporting_services",
+      "label": "Supporting Products And Integrations",
+      "summary": "Provides the separate Agent API, CLI helpers, email templates, landing site, and lightweight proxy/tunnel support around the main platform.",
+      "modules": [
+        "mod_agent_api",
+        "mod_cli",
+        "mod_email_reports",
+        "mod_landing_docs",
+        "mod_proxy_tunnel"
+      ]
     }
   ],
   "nodes": [
     {
-      "id": "mod_app_entry",
-      "label": "App Entry & Routing",
+      "id": "mod_frontend_app_shell",
+      "label": "Frontend App Shell",
       "kind": "module",
-      "parent": "frontend",
-      "summary": "Boots the React app, sets up routing, theme, and the global authenticated/public layouts.",
-      "key_files": ["app/index.tsx", "app/routes"],
-      "path": "app",
+      "parent": "cluster_web_experience",
+      "summary": "Bootstraps Clerk auth, PostHog, React Query, global providers, layouts, and lazy-loaded routes for the authenticated product UI.",
+      "key_files": [
+        "frontend/src/main.tsx",
+        "frontend/src/layouts/app-layout.tsx",
+        "frontend/src/providers/auth-guard.tsx",
+        "frontend/src/providers/query-provider.tsx",
+        "frontend/src/utils/api.ts"
+      ],
+      "path": "frontend/src",
       "changed_recently": false
     },
     {
-      "id": "mod_scenes",
-      "label": "Scenes",
+      "id": "mod_frontend_test_management",
+      "label": "Test Management UI",
       "kind": "module",
-      "parent": "frontend",
-      "summary": "Top-level page components for documents, collections, search, settings, and login.",
-      "key_files": ["app/scenes/Document", "app/scenes/Login", "app/scenes/Search"],
-      "path": "app/scenes",
+      "parent": "cluster_web_experience",
+      "summary": "Implements pages and components for tests, folders, test plans, runs, issues, environments, and organization settings.",
+      "key_files": [
+        "frontend/src/pages/test-plans-list.tsx",
+        "frontend/src/pages/test-plan-details.tsx",
+        "frontend/src/pages/test-case-details.tsx",
+        "frontend/src/pages/runs.tsx",
+        "frontend/src/components/folder-tests-management/test-explorer/test-explorer-main.tsx",
+        "frontend/src/hooks/use-test-cases.ts"
+      ],
+      "path": "frontend/src",
       "changed_recently": false
     },
     {
-      "id": "mod_stores",
-      "label": "MobX Stores",
+      "id": "mod_frontend_no_code_editor",
+      "label": "No-Code Test Editor",
       "kind": "module",
-      "parent": "frontend",
-      "summary": "Observable client-side state stores that load, cache, and mutate data via the API.",
-      "key_files": ["app/stores/RootStore.ts", "app/stores/DocumentsStore.ts", "app/stores/AuthStore.ts", "app/stores/base"],
-      "path": "app/stores",
+      "parent": "cluster_web_experience",
+      "summary": "Provides the visual test editor, step forms, live preview, recorder controls, run controls, and step-level AI assistance.",
+      "key_files": [
+        "frontend/src/components/nocode-editor/no-code-editor.tsx",
+        "frontend/src/components/nocode-editor/steps-form.tsx",
+        "frontend/src/components/nocode-editor/step-form-renderer.tsx",
+        "frontend/src/components/nocode-editor/generate-step-form.tsx",
+        "frontend/src/components/nocode-editor/use-recorder-and-agent-store.ts"
+      ],
+      "path": "frontend/src/components/nocode-editor",
       "changed_recently": false
     },
     {
-      "id": "mod_app_models",
-      "label": "Client Models",
+      "id": "mod_frontend_ai_dashboard",
+      "label": "AI, Analytics, And Admin UI",
       "kind": "module",
-      "parent": "frontend",
-      "summary": "Client-side model classes mirroring server entities and decorated for MobX observability.",
-      "key_files": ["app/models/Document.ts", "app/models/Collection.ts", "app/models/base"],
-      "path": "app/models",
+      "parent": "cluster_web_experience",
+      "summary": "Renders AI chat, context hub, dashboards, run analytics, queue administration, and AI evaluation screens.",
+      "key_files": [
+        "frontend/src/pages/agent/index.tsx",
+        "frontend/src/pages/context-hub.tsx",
+        "frontend/src/pages/dashboard.tsx",
+        "frontend/src/pages/admin/queue-dashboard.tsx",
+        "frontend/src/pages/admin/ai-step-evals.tsx",
+        "frontend/src/components/dashboard/dashboard-overview-tab.tsx"
+      ],
+      "path": "frontend/src",
       "changed_recently": false
     },
     {
-      "id": "mod_components",
-      "label": "UI Components",
+      "id": "mod_ui_design_system",
+      "label": "Shared UI Components",
       "kind": "module",
-      "parent": "frontend",
-      "summary": "Reusable presentational and container React components shared across scenes.",
-      "key_files": ["app/components"],
-      "path": "app/components",
+      "parent": "cluster_web_experience",
+      "summary": "Supplies reusable shadcn/Radix-based components, tables, forms, pickers, theme providers, and product-specific display widgets.",
+      "key_files": [
+        "ui/src/index.ts",
+        "ui/src/components/index.ts",
+        "ui/src/shadcn/index.ts",
+        "ui/src/shadcn/ui/button.tsx",
+        "ui/src/components/data-table/data-table.tsx"
+      ],
+      "path": "ui/src",
       "changed_recently": false
     },
     {
-      "id": "mod_shared_editor",
-      "label": "Shared Editor Schema",
+      "id": "mod_api_server",
+      "label": "Express API Server",
       "kind": "module",
-      "parent": "editor",
-      "summary": "The isomorphic ProseMirror schema (nodes, marks, plugins, commands) shared by client and server.",
-      "key_files": ["shared/editor/nodes", "shared/editor/marks", "shared/editor/extensions", "shared/schema.ts"],
-      "path": "shared/editor",
+      "parent": "cluster_api_platform",
+      "summary": "Initializes Express, security middleware, logging, health checks, route registration, and graceful shutdown for the main API process.",
+      "key_files": [
+        "api/src/server.ts",
+        "api/src/app.ts",
+        "api/src/config.ts",
+        "api/src/middlewares/error-handler.ts",
+        "api/src/middlewares/request-logger.ts"
+      ],
+      "path": "api/src",
       "changed_recently": false
     },
     {
-      "id": "mod_app_editor",
-      "label": "Client Editor",
+      "id": "mod_api_domain_controllers",
+      "label": "Domain Controllers",
       "kind": "module",
-      "parent": "editor",
-      "summary": "Wraps the shared editor with client extensions, menus, and components for in-app editing.",
-      "key_files": ["app/editor/index.tsx", "app/editor/extensions", "app/editor/menus"],
-      "path": "app/editor",
+      "parent": "cluster_api_platform",
+      "summary": "Implements authenticated REST endpoints for test cases, test plans, runs, grouped runs, scenarios, issues, folders, environments, variables, and attachments.",
+      "key_files": [
+        "api/src/controllers/test-cases.controller.ts",
+        "api/src/controllers/test-plans.controller.ts",
+        "api/src/controllers/test-case-runs.controller.ts",
+        "api/src/controllers/grouped-runs.controller.ts",
+        "api/src/controllers/issues.controller.ts",
+        "api/src/controllers/environments.controller.ts"
+      ],
+      "path": "api/src/controllers",
       "changed_recently": false
     },
     {
-      "id": "mod_server_entry",
-      "label": "Server Entry",
+      "id": "mod_api_auth_middleware",
+      "label": "Auth And Organization Gates",
       "kind": "module",
-      "parent": "api",
-      "summary": "Bootstraps services (web, worker, websockets, collaboration) and starts the Node process.",
-      "key_files": ["server/index.ts", "server/services/index.ts", "server/services/web.ts"],
-      "path": "server",
+      "parent": "cluster_api_platform",
+      "summary": "Enforces Clerk authentication, organization role checks, static auth for recording screenshots, super-admin access, and rate limiting.",
+      "key_files": [
+        "api/src/middleware/org-role.middleware.ts",
+        "api/src/middleware/super-admin.middleware.ts",
+        "api/src/middlewares/static-auth-handler.ts",
+        "api/src/middlewares/rate-limiter.ts",
+        "api/src/utils/email-auth.ts"
+      ],
+      "path": "api/src",
       "changed_recently": false
     },
     {
-      "id": "mod_api_routes",
-      "label": "API Routes",
+      "id": "mod_public_api",
+      "label": "Public API Surface",
       "kind": "module",
-      "parent": "api",
-      "summary": "Versioned JSON endpoints grouped by resource (documents, collections, auth, etc.).",
-      "key_files": ["server/routes/api/index.ts", "server/routes/api/documents/documents.ts", "server/routes/api/collections"],
-      "path": "server/routes/api",
+      "parent": "cluster_api_platform",
+      "summary": "Provides versioned API-key oriented endpoints for external clients to trigger test plan runs and manage environments.",
+      "key_files": [
+        "api/src/controllers/public/v1/test-plan-runs.controller.ts",
+        "api/src/controllers/public/v1/environments.controller.ts",
+        "shared/src/schemas/public/v1/index.ts",
+        "shared/src/schemas/public/v1/grouped-runs.schema.ts",
+        "api/src/models/api-keys.ts"
+      ],
+      "path": "api/src/controllers/public/v1",
       "changed_recently": false
     },
     {
-      "id": "node_documents_api",
-      "label": "documents.ts",
-      "kind": "file",
-      "parent": "mod_api_routes",
-      "summary": "Implements the documents.* endpoints (create, update, info, search, move, archive).",
-      "key_files": ["server/routes/api/documents/documents.ts"],
-      "path": "server/routes/api/documents/documents.ts",
-      "changed_recently": false
-    },
-    {
-      "id": "mod_middlewares",
-      "label": "Middlewares",
+      "id": "mod_execution_queues",
+      "label": "BullMQ Queues",
       "kind": "module",
-      "parent": "api",
-      "summary": "Koa middlewares for authentication, rate limiting, CSRF, multipart, and request context.",
-      "key_files": ["server/middlewares/authentication.ts", "server/middlewares/rateLimiter.ts", "server/middlewares/apiContext.ts"],
-      "path": "server/middlewares",
+      "parent": "cluster_execution",
+      "summary": "Defines regional realtime and scheduled test queues plus common, AI usage, report, stuck-run, and cancellation job names.",
+      "key_files": [
+        "api/src/queues.ts",
+        "api/src/redis.ts",
+        "api/src/jobs/check-scheduled-test-plans.job.ts",
+        "api/src/jobs/check-stuck-runs.job.ts",
+        "api/src/jobs/cancel-grouped-run.job.ts"
+      ],
+      "path": "api/src",
       "changed_recently": false
     },
     {
-      "id": "mod_commands",
-      "label": "Commands",
+      "id": "mod_execution_workers",
+      "label": "Execution Workers",
       "kind": "module",
-      "parent": "api",
-      "summary": "Transactional business-logic operations that mutate domain entities (create, move, import documents).",
-      "key_files": ["server/commands/documentCreator.ts", "server/commands/documentMover.ts", "server/commands/accountProvisioner.ts"],
-      "path": "server/commands",
+      "parent": "cluster_execution",
+      "summary": "Processes queued test jobs with Redis slot acquisition, regional worker selection, progress updates, retries, and failure handling.",
+      "key_files": [
+        "api/src/workers/test-run.worker.ts",
+        "api/src/workers/common.worker.ts",
+        "api/src/workers/cancellable-test-run.worker.ts",
+        "api/src/jobs/run-test.job.ts",
+        "api/src/utils/job-tracker.ts"
+      ],
+      "path": "api/src/workers",
       "changed_recently": false
     },
     {
-      "id": "mod_presenters",
-      "label": "Presenters",
+      "id": "mod_execution_run_services",
+      "label": "Run Planning Services",
       "kind": "module",
-      "parent": "api",
-      "summary": "Serialize Sequelize models into the JSON shapes returned by the API.",
-      "key_files": ["server/presenters/document.ts", "server/presenters/collection.ts", "server/presenters/user.ts"],
-      "path": "server/presenters",
+      "parent": "cluster_execution",
+      "summary": "Creates grouped runs, test case run snapshots, scenario rows, runtime groups, and queue jobs for manual, scheduled, and editor-triggered execution.",
+      "key_files": [
+        "api/src/services/run-test-case.ts",
+        "api/src/services/run-testplan.ts",
+        "api/src/services/run-grouped-run.ts",
+        "api/src/services/cancel-test-case-run.service.ts",
+        "api/src/utils/runtime-tracker.ts"
+      ],
+      "path": "api/src/services",
       "changed_recently": false
     },
     {
-      "id": "mod_policies",
-      "label": "Authorization Policies",
+      "id": "mod_python_runner",
+      "label": "Python Playwright Runner",
       "kind": "module",
-      "parent": "api",
-      "summary": "Cancan-style ability checks that authorize a user against an action on a model.",
-      "key_files": ["server/policies"],
-      "path": "server/policies",
+      "parent": "cluster_execution",
+      "summary": "Hosts the generated pytest/Playwright runtime, realtime reporting utilities, browser state helpers, OpenTelemetry setup, and runner prompts.",
+      "key_files": [
+        "runner-py/pyproject.toml",
+        "runner-py/src/config.py",
+        "runner-py/src/services/realtime_reporter.py",
+        "runner-py/src/services/browser_state.py",
+        "runner-py/src/services/observability.py",
+        "runner-py/src/utils/otel.py"
+      ],
+      "path": "runner-py",
       "changed_recently": false
     },
     {
-      "id": "mod_auth_routes",
-      "label": "Auth Routes",
+      "id": "mod_execution_artifacts",
+      "label": "Run Artifact Services",
       "kind": "module",
-      "parent": "auth",
-      "summary": "HTTP routes that mount provider login flows and issue authenticated session cookies.",
-      "key_files": ["server/routes/auth/index.ts"],
-      "path": "server/routes/auth",
+      "parent": "cluster_execution",
+      "summary": "Uploads and resolves screenshots, videos, traces, HTML snapshots, browser state, readable logs, and post-run status updates.",
+      "key_files": [
+        "api/src/services/handle-test-run-post-processing.ts",
+        "api/src/services/upload-screenshots.ts",
+        "api/src/services/upload-video.ts",
+        "api/src/services/upload-test-traces.ts",
+        "api/src/services/upload-htmlsnapshots.ts",
+        "api/src/services/browser-state.ts"
+      ],
+      "path": "api/src/services",
       "changed_recently": false
     },
     {
-      "id": "mod_passport",
-      "label": "Passport Strategy",
+      "id": "mod_ws_server",
+      "label": "Socket.IO Coordination Server",
       "kind": "module",
-      "parent": "auth",
-      "summary": "Shared Passport callback handling that turns provider profiles into provisioned accounts.",
-      "key_files": ["server/utils/passport.ts", "server/middlewares/passport.ts"],
-      "path": "server/utils/passport.ts",
+      "parent": "cluster_recording_realtime",
+      "summary": "Authenticates and routes realtime connections from frontend editors, extensions, reporters, automation workers, and run workers.",
+      "key_files": [
+        "api/src/ws-server/server.ts",
+        "api/src/ws-server/auth.ts",
+        "api/src/ws-server/connections/manager.ts",
+        "api/src/ws-server/connections/frontend.ts",
+        "api/src/ws-server/connections/extension.ts",
+        "api/src/ws-server/handlers/recording.ts",
+        "api/src/ws-server/handlers/result-stream.ts"
+      ],
+      "path": "api/src/ws-server",
       "changed_recently": false
     },
     {
-      "id": "mod_oauth",
-      "label": "OAuth Provider Server",
+      "id": "mod_extension_background",
+      "label": "Extension Background Runtime",
       "kind": "module",
-      "parent": "auth",
-      "summary": "Outline-as-an-OAuth-provider endpoints for issuing tokens to third-party clients.",
-      "key_files": ["server/routes/oauth/index.ts", "server/routes/oauth/oauth.test.ts"],
-      "path": "server/routes/oauth",
+      "parent": "cluster_recording_realtime",
+      "summary": "Maintains Chrome extension state, WebSocket connection, tab mapping, screenshot upload queue, and recorder lifecycle messages.",
+      "key_files": [
+        "extension/src/background.ts",
+        "extension/src/config.ts",
+        "extension/src/utils/indexedDb.ts",
+        "extension/src/utils/svpStore.ts",
+        "extension/src/types/index.ts"
+      ],
+      "path": "extension/src",
       "changed_recently": false
     },
     {
-      "id": "mod_auth_providers",
-      "label": "Auth Provider Plugins",
+      "id": "mod_extension_content",
+      "label": "Extension Content Scripts",
       "kind": "module",
-      "parent": "auth",
-      "summary": "Pluggable SSO integrations (Google, OIDC, Slack, Azure) registered at startup.",
-      "key_files": ["plugins/google/server", "plugins/oidc/server", "plugins/slack/server"],
-      "path": "plugins",
+      "parent": "cluster_recording_realtime",
+      "summary": "Injects Playwright selector generation and event handlers into pages to capture clicks, inputs, scrolls, drags, frame paths, and element picker state.",
+      "key_files": [
+        "extension/src/content/index.ts",
+        "extension/src/content/event-handlers/clickEvents.ts",
+        "extension/src/content/event-handlers/inputEvents.ts",
+        "extension/src/content/event-handlers/scrollEvents.ts",
+        "extension/src/content/services/generateLocators.ts",
+        "extension/src/content/services/messageHandler.ts"
+      ],
+      "path": "extension/src/content",
       "changed_recently": false
     },
     {
-      "id": "mod_collaboration",
-      "label": "Collaboration Server",
+      "id": "mod_recorder_engine",
+      "label": "Recorder Engine",
       "kind": "module",
-      "parent": "realtime",
-      "summary": "Hocuspocus extensions that authenticate, persist, and broadcast Yjs document edits.",
-      "key_files": ["server/collaboration/PersistenceExtension.ts", "server/collaboration/AuthenticationExtension.ts", "server/services/collaboration.ts"],
-      "path": "server/collaboration",
+      "parent": "cluster_recording_realtime",
+      "summary": "Packages a newer modular Chrome recording worker that buffers Playwright recorder actions, converts them to Supatest actions, and uploads screenshots.",
+      "key_files": [
+        "recorder/src/background/index.ts",
+        "recorder/src/background/processors/action-processor.ts",
+        "recorder/src/background/processors/screenshot-processor.ts",
+        "recorder/src/utils/background/supatest-action.utils.ts",
+        "recorder/src/types/action.types.ts"
+      ],
+      "path": "recorder/src",
       "changed_recently": false
     },
     {
-      "id": "mod_websockets",
-      "label": "Websockets",
+      "id": "mod_ai_step_generation",
+      "label": "DSL Step Generation",
       "kind": "module",
-      "parent": "realtime",
-      "summary": "Socket.io service that pushes live entity changes and presence to connected clients.",
-      "key_files": ["server/services/websockets.ts"],
-      "path": "server/services/websockets.ts",
+      "parent": "cluster_ai_generation",
+      "summary": "Builds OpenAI prompts and Zod-constrained responses for converting page context and user instructions into valid Supatest DSL steps.",
+      "key_files": [
+        "api/src/services/generate-dslsteps.ts",
+        "api/src/services/prompt-blocks.ts",
+        "api/src/services/validate-steps.ts",
+        "api/src/services/generate-optimized-agent-prompt.ts",
+        "api/src/services/models/get-azure-open-aigpt4o-resp.ts"
+      ],
+      "path": "api/src/services",
       "changed_recently": false
     },
     {
-      "id": "mod_queues",
-      "label": "Queues & Processors",
+      "id": "mod_ai_code_generation",
+      "label": "Playwright Code Generation",
       "kind": "module",
-      "parent": "realtime",
-      "summary": "BullMQ queues with event processors and scheduled tasks for async work like emails and backlinks.",
-      "key_files": ["server/queues/index.ts", "server/queues/processors", "server/queues/tasks"],
-      "path": "server/queues",
+      "parent": "cluster_ai_generation",
+      "summary": "Translates DSL steps, run configs, snippets, scenarios, and runtime context into executable Playwright Python code.",
+      "key_files": [
+        "api/src/services/generate-playwright-py-code.ts",
+        "api/src/services/codegen/python/steps.ts",
+        "api/src/services/codegen/python/readable-body.ts",
+        "api/src/services/generate-playwright-code.ts",
+        "api/src/services/code-migration/generate-dslcases-from-code.ts"
+      ],
+      "path": "api/src/services",
       "changed_recently": false
     },
     {
-      "id": "mod_services",
-      "label": "Process Services",
+      "id": "mod_ai_chat",
+      "label": "AI Chat And Context",
       "kind": "module",
-      "parent": "realtime",
-      "summary": "Selectable process roles (web, worker, websockets, collaboration, admin, cron).",
-      "key_files": ["server/services/index.ts", "server/services/worker.ts", "server/services/cron.ts"],
-      "path": "server/services",
+      "parent": "cluster_ai_generation",
+      "summary": "Manages AI conversations, context document enrichment, test-case context references, generated cases, and usage accounting.",
+      "key_files": [
+        "api/src/controllers/ai-chat.controller.ts",
+        "api/src/services/generate-conversational-response.ts",
+        "api/src/models/conversations.model.ts",
+        "api/src/models/messages.model.ts",
+        "api/src/models/context-documents.model.ts"
+      ],
+      "path": "api/src",
       "changed_recently": false
     },
     {
-      "id": "mod_models",
-      "label": "Sequelize Models",
+      "id": "mod_ai_failure_healing",
+      "label": "Failure Analysis And Healing",
       "kind": "module",
-      "parent": "data",
-      "summary": "ORM model definitions for the core domain (Document, Collection, User, Team, Revision).",
-      "key_files": ["server/models/Document.ts", "server/models/Collection.ts", "server/models/User.ts", "server/models/Team.ts"],
-      "path": "server/models",
+      "parent": "cluster_ai_generation",
+      "summary": "Categorizes execution failures, stores healing sessions and attempts, renders healing activity, and supports automated test repair flows.",
+      "key_files": [
+        "api/src/services/failure-analysis.service.ts",
+        "api/src/utils/failure-analysis.ts",
+        "api/src/models/healing-sessions.model.ts",
+        "api/src/models/healing-attempts.model.ts",
+        "frontend/src/components/auto-healing/healing-activity.tsx"
+      ],
+      "path": "api/src",
       "changed_recently": false
     },
     {
-      "id": "node_document_model",
-      "label": "Document.ts",
-      "kind": "file",
-      "parent": "mod_models",
-      "summary": "The central Document model holding content, collaborative state, and tree relationships.",
-      "key_files": ["server/models/Document.ts"],
-      "path": "server/models/Document.ts",
-      "changed_recently": false
-    },
-    {
-      "id": "mod_database",
-      "label": "Database Connection",
+      "id": "mod_shared_contracts",
+      "label": "Shared Schemas And Constants",
       "kind": "module",
-      "parent": "data",
-      "summary": "Sequelize connection setup plus the Redis client used for caching and queues.",
-      "key_files": ["server/storage/database.ts", "server/storage/redis.ts"],
-      "path": "server/storage",
+      "parent": "cluster_data_contracts",
+      "summary": "Exports cross-package Zod schemas, status constants, region constants, HTTP status codes, formatting utilities, and the shared step store.",
+      "key_files": [
+        "shared/src/index.ts",
+        "shared/src/constants.ts",
+        "shared/src/constants/regions.ts",
+        "shared/src/schemas/test-steps.schema.ts",
+        "shared/src/schemas/test-cases.schema.ts",
+        "shared/src/schemas/test-case-runs.schema.ts",
+        "shared/src/use-steps-store.ts"
+      ],
+      "path": "shared/src",
       "changed_recently": false
     },
     {
-      "id": "mod_migrations",
-      "label": "Migrations",
+      "id": "mod_db_models",
+      "label": "Drizzle Domain Models",
       "kind": "module",
-      "parent": "data",
-      "summary": "Sequelize migration scripts that evolve the Postgres schema over time.",
-      "key_files": ["server/migrations"],
-      "path": "server/migrations",
+      "parent": "cluster_data_contracts",
+      "summary": "Defines Drizzle tables and query helpers for organizations, users, tests, plans, runs, scenarios, browser sessions, AI usage, and issues.",
+      "key_files": [
+        "api/src/models/schema.ts",
+        "api/src/models/test-cases.model.ts",
+        "api/src/models/test-case-runs.model.ts",
+        "api/src/models/test-plans.model.ts",
+        "api/src/models/grouped-runs.model.ts",
+        "api/src/models/organizations.ts"
+      ],
+      "path": "api/src/models",
       "changed_recently": false
     },
     {
-      "id": "mod_storage_core",
-      "label": "Storage Core",
+      "id": "mod_db_client_migrations",
+      "label": "Database Client And Migrations",
       "kind": "module",
-      "parent": "storage",
-      "summary": "Server file-handling utilities and request-scoped storage helpers.",
-      "key_files": ["server/storage/files", "server/storage/utils.ts"],
-      "path": "server/storage/files",
+      "parent": "cluster_data_contracts",
+      "summary": "Configures PostgreSQL access, Drizzle migration execution, migration metadata, and one-off database scripts.",
+      "key_files": [
+        "api/src/db/client.ts",
+        "api/src/db/migrate.ts",
+        "api/drizzle/meta/_journal.json",
+        "api/src/db/scripts/create-demo-data.ts",
+        "api/src/scripts/canonicalize-run-configs.ts"
+      ],
+      "path": "api",
       "changed_recently": false
     },
     {
-      "id": "mod_storage_plugin",
-      "label": "Storage Plugin (Local/S3)",
+      "id": "mod_environment_config",
+      "label": "Environment And Runtime Config",
       "kind": "module",
-      "parent": "storage",
-      "summary": "Pluggable storage backend abstracting local disk and S3-compatible object stores.",
-      "key_files": ["plugins/storage/server/index.ts", "plugins/storage/server/api"],
-      "path": "plugins/storage/server",
+      "parent": "cluster_data_contracts",
+      "summary": "Centralizes API, frontend, extension, runner, Redis, OpenTelemetry, region, and third-party integration configuration.",
+      "key_files": [
+        "api/src/config.ts",
+        "api/src/config/database.ts",
+        "frontend/src/utils/environment.ts",
+        "extension/src/config.ts",
+        "recorder/src/config.ts",
+        "runner-py/src/config.py"
+      ],
+      "path": ".",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_agent_api",
+      "label": "Agent API",
+      "kind": "module",
+      "parent": "cluster_supporting_services",
+      "summary": "Provides a separate FastAPI service for Supatest Agent v2 chat streaming, Clerk JWT auth, SQLModel persistence, and Claude Agent SDK integration placeholders.",
+      "key_files": [
+        "agent/app/main.py",
+        "agent/app/api/chat.py",
+        "agent/app/auth/clerk.py",
+        "agent/app/agent/client.py",
+        "agent/app/agent/session.py",
+        "agent/app/models/conversation.py"
+      ],
+      "path": "agent",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_cli",
+      "label": "CLI Utilities",
+      "kind": "module",
+      "parent": "cluster_supporting_services",
+      "summary": "Contains command-line helpers for running plans and updating environment configuration outside the web UI.",
+      "key_files": [
+        "cli/src/cli.ts",
+        "cli/src/config.ts",
+        "cli/src/commands/run-plan.ts",
+        "cli/src/commands/update-env.ts",
+        "cli/package.json"
+      ],
+      "path": "cli",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_email_reports",
+      "label": "Email Reports",
+      "kind": "module",
+      "parent": "cluster_supporting_services",
+      "summary": "Renders React Email templates and helpers for sending test plan report emails from backend jobs.",
+      "key_files": [
+        "email/src/index.ts",
+        "email/src/emails/TestPlanReport.tsx",
+        "email/src/utils/formatAction.ts",
+        "api/src/services/send-test-plan-report-email.ts",
+        "api/src/jobs/send-plan-run-report.job.ts"
+      ],
+      "path": "email/src",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_landing_docs",
+      "label": "Landing Site And Docs",
+      "kind": "module",
+      "parent": "cluster_supporting_services",
+      "summary": "Hosts the public marketing site, guide pages, docs, pricing, FAQ, testimonials, and content assets.",
+      "key_files": [
+        "landing/src/App.tsx",
+        "landing/src/main.tsx",
+        "landing/src/pages/Home.tsx",
+        "landing/src/components/sections/hero-section.tsx",
+        "landing/src/components/sections/pricing-section.tsx",
+        "docs/README.md"
+      ],
+      "path": "landing/src",
+      "changed_recently": false
+    },
+    {
+      "id": "mod_proxy_tunnel",
+      "label": "Proxy And Tunnel Helpers",
+      "kind": "module",
+      "parent": "cluster_supporting_services",
+      "summary": "Includes lightweight packages and documentation for proxy and tunnel-manager support around browser execution environments.",
+      "key_files": [
+        "proxy/package.json",
+        "proxy/README.md",
+        "tunnel-manager/README.md"
+      ],
+      "path": ".",
       "changed_recently": false
     }
   ],
   "edges": [
-    { "source": "mod_app_entry", "target": "mod_scenes", "kind": "imports" },
-    { "source": "mod_scenes", "target": "mod_stores", "kind": "depends" },
-    { "source": "mod_scenes", "target": "mod_components", "kind": "imports" },
-    { "source": "mod_scenes", "target": "mod_app_editor", "kind": "imports" },
-    { "source": "mod_stores", "target": "mod_app_models", "kind": "imports" },
-    { "source": "mod_stores", "target": "mod_api_routes", "kind": "calls" },
-    { "source": "mod_app_editor", "target": "mod_shared_editor", "kind": "imports" },
-    { "source": "mod_server_entry", "target": "mod_services", "kind": "depends" },
-    { "source": "mod_services", "target": "mod_api_routes", "kind": "depends" },
-    { "source": "mod_services", "target": "mod_collaboration", "kind": "depends" },
-    { "source": "mod_services", "target": "mod_websockets", "kind": "depends" },
-    { "source": "mod_services", "target": "mod_queues", "kind": "depends" },
-    { "source": "mod_api_routes", "target": "mod_middlewares", "kind": "depends" },
-    { "source": "mod_api_routes", "target": "mod_commands", "kind": "calls" },
-    { "source": "mod_api_routes", "target": "mod_presenters", "kind": "calls" },
-    { "source": "mod_api_routes", "target": "mod_policies", "kind": "calls" },
-    { "source": "node_documents_api", "target": "mod_commands", "kind": "calls" },
-    { "source": "mod_commands", "target": "mod_models", "kind": "depends" },
-    { "source": "mod_presenters", "target": "mod_models", "kind": "depends" },
-    { "source": "mod_policies", "target": "mod_models", "kind": "depends" },
-    { "source": "mod_middlewares", "target": "mod_passport", "kind": "depends" },
-    { "source": "mod_auth_routes", "target": "mod_passport", "kind": "calls" },
-    { "source": "mod_auth_routes", "target": "mod_auth_providers", "kind": "depends" },
-    { "source": "mod_passport", "target": "mod_commands", "kind": "calls" },
-    { "source": "mod_oauth", "target": "mod_models", "kind": "depends" },
-    { "source": "mod_collaboration", "target": "mod_models", "kind": "depends" },
-    { "source": "mod_collaboration", "target": "mod_shared_editor", "kind": "imports" },
-    { "source": "mod_commands", "target": "mod_queues", "kind": "calls" },
-    { "source": "mod_queues", "target": "mod_models", "kind": "depends" },
-    { "source": "mod_websockets", "target": "mod_models", "kind": "depends" },
-    { "source": "mod_models", "target": "mod_database", "kind": "depends" },
-    { "source": "node_document_model", "target": "mod_database", "kind": "depends" },
-    { "source": "mod_commands", "target": "mod_storage_core", "kind": "calls" },
-    { "source": "mod_storage_core", "target": "mod_storage_plugin", "kind": "depends" }
+    {
+      "source": "mod_frontend_app_shell",
+      "target": "mod_shared_contracts",
+      "kind": "imports"
+    },
+    {
+      "source": "mod_frontend_app_shell",
+      "target": "mod_ui_design_system",
+      "kind": "imports"
+    },
+    {
+      "source": "mod_frontend_test_management",
+      "target": "mod_api_domain_controllers",
+      "kind": "calls"
+    },
+    {
+      "source": "mod_frontend_no_code_editor",
+      "target": "mod_ws_server",
+      "kind": "calls"
+    },
+    {
+      "source": "mod_api_server",
+      "target": "mod_api_domain_controllers",
+      "kind": "imports"
+    },
+    {
+      "source": "mod_api_domain_controllers",
+      "target": "mod_db_models",
+      "kind": "depends"
+    },
+    {
+      "source": "mod_api_domain_controllers",
+      "target": "mod_execution_run_services",
+      "kind": "calls"
+    },
+    {
+      "source": "mod_execution_run_services",
+      "target": "mod_execution_queues",
+      "kind": "calls"
+    },
+    {
+      "source": "mod_execution_workers",
+      "target": "mod_python_runner",
+      "kind": "calls"
+    },
+    {
+      "source": "mod_execution_workers",
+      "target": "mod_ai_code_generation",
+      "kind": "calls"
+    },
+    {
+      "source": "mod_extension_background",
+      "target": "mod_ws_server",
+      "kind": "calls"
+    },
+    {
+      "source": "mod_extension_content",
+      "target": "mod_shared_contracts",
+      "kind": "imports"
+    },
+    {
+      "source": "mod_ai_step_generation",
+      "target": "mod_shared_contracts",
+      "kind": "imports"
+    },
+    {
+      "source": "mod_db_client_migrations",
+      "target": "mod_db_models",
+      "kind": "imports"
+    }
   ],
   "flows": [
     {
-      "name": "User login via SSO (OAuth)",
+      "name": "Manual test case run",
       "steps": [
-        { "node": "mod_scenes", "description": "User hits the Login scene and selects an SSO provider." },
-        { "node": "mod_auth_routes", "description": "The auth route redirects to the provider and handles the callback." },
-        { "node": "mod_auth_providers", "description": "The provider plugin (e.g. Google/OIDC) returns the authenticated profile." },
-        { "node": "mod_passport", "description": "The Passport callback normalizes the profile and triggers provisioning." },
-        { "node": "mod_commands", "description": "accountProvisioner finds or creates the Team and User records." },
-        { "node": "mod_models", "description": "User/Team/AuthenticationProvider rows are persisted via Sequelize." },
-        { "node": "mod_auth_routes", "description": "A signed session cookie is issued and the user is redirected into the app." }
+        {
+          "node": "mod_frontend_test_management",
+          "description": "A user starts a test case or grouped run from the React UI."
+        },
+        {
+          "node": "mod_api_domain_controllers",
+          "description": "The API validates the request, loads test case and run configuration data, and creates run records."
+        },
+        {
+          "node": "mod_execution_run_services",
+          "description": "Run services snapshot steps, expand snippets and scenarios, create grouped runtime metadata, and prepare jobs."
+        },
+        {
+          "node": "mod_execution_queues",
+          "description": "BullMQ enqueues regional realtime or scheduled run jobs backed by Redis."
+        },
+        {
+          "node": "mod_execution_workers",
+          "description": "Workers acquire concurrency slots, update progress, and generate execution data when needed."
+        },
+        {
+          "node": "mod_ai_code_generation",
+          "description": "The worker converts DSL steps and runtime context into Playwright Python code."
+        },
+        {
+          "node": "mod_python_runner",
+          "description": "Generated pytest code executes against Playwright browsers in the Python runner."
+        },
+        {
+          "node": "mod_execution_artifacts",
+          "description": "Post-processing stores logs, videos, screenshots, traces, snapshots, and final statuses."
+        }
       ]
     },
     {
-      "name": "Create & edit a document",
+      "name": "Browser recording to editable steps",
       "steps": [
-        { "node": "mod_scenes", "description": "The Document scene mounts the editor for a new or existing document." },
-        { "node": "mod_stores", "description": "DocumentsStore issues an API call to create or update the document." },
-        { "node": "node_documents_api", "description": "documents.ts validates input and runs middleware/policy checks." },
-        { "node": "mod_policies", "description": "Authorization confirms the user may create/edit in the target collection." },
-        { "node": "mod_commands", "description": "documentCreator/updater performs the transactional write." },
-        { "node": "node_document_model", "description": "The Document model persists content and metadata to Postgres." },
-        { "node": "mod_presenters", "description": "The saved document is serialized back to JSON for the client." },
-        { "node": "mod_queues", "description": "Async processors handle backlinks, notifications, and search indexing." }
+        {
+          "node": "mod_frontend_no_code_editor",
+          "description": "The no-code editor starts or stops recording for a selected test case."
+        },
+        {
+          "node": "mod_ws_server",
+          "description": "Socket.IO coordinates the editor and extension sessions for recording messages."
+        },
+        {
+          "node": "mod_extension_background",
+          "description": "The extension tracks recording state, tab changes, screenshots, and buffered actions."
+        },
+        {
+          "node": "mod_extension_content",
+          "description": "Content scripts capture DOM events, generate locators, and report actions from frames."
+        },
+        {
+          "node": "mod_ws_server",
+          "description": "Recording handlers forward action and screenshot events back to the server-side session."
+        },
+        {
+          "node": "mod_api_domain_controllers",
+          "description": "The API stores or updates the test case steps and screenshot references."
+        },
+        {
+          "node": "mod_frontend_no_code_editor",
+          "description": "The editor renders the new steps for review, editing, and execution."
+        }
       ]
     },
     {
-      "name": "Real-time collaborative editing",
+      "name": "AI-assisted test authoring",
       "steps": [
-        { "node": "mod_app_editor", "description": "The client editor connects to the collaboration websocket for a document." },
-        { "node": "mod_collaboration", "description": "AuthenticationExtension verifies the user's access to the document." },
-        { "node": "mod_shared_editor", "description": "Yjs updates are applied against the shared ProseMirror schema." },
-        { "node": "mod_collaboration", "description": "PersistenceExtension debounces and writes the merged state back." },
-        { "node": "node_document_model", "description": "The Document model stores the collaborative state and text." },
-        { "node": "mod_websockets", "description": "Change and presence events are broadcast to other connected clients." }
+        {
+          "node": "mod_frontend_ai_dashboard",
+          "description": "A user submits AI chat or generation instructions with optional context documents and test references."
+        },
+        {
+          "node": "mod_ai_chat",
+          "description": "The API aggregates conversation history, context documents, and referenced test cases."
+        },
+        {
+          "node": "mod_ai_step_generation",
+          "description": "Prompt services produce validated DSL steps from instructions, HTML context, snippets, and schemas."
+        },
+        {
+          "node": "mod_shared_contracts",
+          "description": "Zod schemas and shared constants constrain the generated test step shape."
+        },
+        {
+          "node": "mod_api_domain_controllers",
+          "description": "Generated steps or cases are persisted through test case endpoints and models."
+        },
+        {
+          "node": "mod_frontend_no_code_editor",
+          "description": "The editor displays AI-generated steps in the test-building workflow."
+        }
       ]
     }
   ],
   "sections": [
     {
-      "id": "overview",
+      "id": "sec_overview",
       "title": "Overview",
-      "body_markdown": "## Overview\n\nOutline is a team knowledge base and collaborative wiki. Users write rich documents organized into collections, edit them together in real time, and find them through full-text search.\n\nThe codebase is a TypeScript monorepo split into three roots:\n\n- **`app/`** — the React + MobX single-page application (the Frontend App Shell and client editor).\n- **`server/`** — the Koa HTTP server, JSON API, background workers, and the collaboration server.\n- **`shared/`** — isomorphic code used by both, most importantly the ProseMirror editor schema.\n\nReusable integrations (SSO providers, storage backends, third-party services) live under **`plugins/`** and are registered at startup.",
-      "related_nodes": ["frontend", "api", "editor", "realtime"]
+      "body_markdown": "Supatest is organized as a pnpm monorepo around a React product UI, an Express API, shared TypeScript contracts, Chrome recording extensions, BullMQ workers, and a Python Playwright runner. The central product loop is authoring UI test steps, recording browser interactions, generating or editing steps with AI, executing tests through regional queues, and collecting artifacts and analytics.",
+      "related_nodes": [
+        "mod_frontend_app_shell",
+        "mod_api_server",
+        "mod_execution_workers",
+        "mod_python_runner",
+        "mod_shared_contracts"
+      ]
     },
     {
-      "id": "architecture",
+      "id": "sec_architecture",
       "title": "Architecture",
-      "body_markdown": "## Architecture\n\nThe browser runs the **Frontend App Shell**: scenes render UI, **MobX stores** hold observable state and call the API, and **client models** mirror server entities.\n\nServer-side, a single binary can run one of several **process services** (web, worker, websockets, collaboration, cron). The **web** service exposes the **API Layer** — versioned routes guarded by **middlewares**, authorized by **policies**, executing **commands** for writes, and shaping responses through **presenters**.\n\nState lives in Postgres via **Sequelize models**, with Redis backing caches and **BullMQ queues**. Real-time editing runs through a **Hocuspocus collaboration** server that persists Yjs state, while **Socket.io websockets** broadcast entity and presence changes.",
-      "related_nodes": ["frontend", "api", "data", "realtime", "mod_middlewares", "mod_policies", "mod_commands", "mod_presenters"]
+      "body_markdown": "The frontend calls the authenticated Express API using Clerk-issued bearer tokens and imports shared schemas plus reusable UI components. The API owns routing, domain orchestration, Drizzle-backed persistence, queue creation, AI service calls, and public API endpoints. Long-running work is pushed into BullMQ queues and processed by worker processes that generate code, invoke the Python runner, and update database state.",
+      "related_nodes": [
+        "mod_frontend_test_management",
+        "mod_api_domain_controllers",
+        "mod_db_models",
+        "mod_execution_queues",
+        "mod_execution_run_services"
+      ]
     },
     {
-      "id": "key-flows",
+      "id": "sec_key_flows",
       "title": "Key Flows",
-      "body_markdown": "## Key Flows\n\n**User login (SSO/OAuth).** The Login scene redirects through an auth provider plugin; the Passport callback provisions a Team and User via commands and issues a session cookie.\n\n**Create & edit a document.** The Document scene calls the API through DocumentsStore; `documents.ts` runs policy checks, a command performs the write to the Document model, and queue processors handle backlinks, notifications, and indexing.\n\n**Real-time collaboration.** The client editor opens a collaboration socket; the Hocuspocus AuthenticationExtension authorizes it, Yjs updates apply against the shared schema, PersistenceExtension writes state back, and websockets broadcast changes to peers.",
-      "related_nodes": ["auth", "mod_auth_routes", "mod_passport", "node_documents_api", "mod_commands", "mod_collaboration", "mod_websockets", "mod_app_editor"]
+      "body_markdown": "The most important flows are manual or scheduled test execution, browser recording into editable DSL steps, and AI-assisted authoring. Realtime coordination uses the Socket.IO server for editor, extension, reporter, and run-worker connections, while execution state and final artifacts are persisted through the API models and storage upload services.",
+      "related_nodes": [
+        "mod_ws_server",
+        "mod_extension_background",
+        "mod_extension_content",
+        "mod_ai_step_generation",
+        "mod_execution_artifacts"
+      ]
     },
     {
-      "id": "entry-points",
+      "id": "sec_entry_points",
       "title": "Entry Points",
-      "body_markdown": "## Entry Points\n\n- **Client:** `app/index.tsx` boots the React tree and routing.\n- **Server:** `server/index.ts` selects which **process services** to run and starts them.\n- **HTTP/API:** the web service mounts `server/routes/api/index.ts`; auth flows mount at `server/routes/auth/index.ts`.\n- **Real-time:** the collaboration and websockets services start from `server/services/collaboration.ts` and `server/services/websockets.ts`.\n- **Background work:** the worker service drains queues defined in `server/queues/index.ts`.",
-      "related_nodes": ["mod_app_entry", "mod_server_entry", "mod_api_routes", "mod_auth_routes", "mod_collaboration", "mod_websockets", "mod_queues", "mod_services"]
+      "body_markdown": "Primary runtime entry points include `frontend/src/main.tsx` for the web app, `api/src/server.ts` for the HTTP API, `api/src/ws-server/server.ts` for realtime sockets, `api/src/workers/test-run.worker.ts` for test execution workers, `extension/src/background.ts` and `extension/src/content/index.ts` for the Chrome extension, and `agent/app/main.py` for the separate Agent API.",
+      "related_nodes": [
+        "mod_frontend_app_shell",
+        "mod_api_server",
+        "mod_ws_server",
+        "mod_execution_workers",
+        "mod_extension_background",
+        "mod_agent_api"
+      ]
     },
     {
-      "id": "data-model",
+      "id": "sec_data_model",
       "title": "Data Model",
-      "body_markdown": "## Data Model\n\nThe domain is defined by **Sequelize models** in `server/models/`. Core entities:\n\n- **Team** — the top-level workspace/tenant.\n- **User** with **UserAuthentication** / **AuthenticationProvider** — accounts and their SSO links.\n- **Collection** — a folder grouping documents, with its own permissions.\n- **Document** — the central entity, holding rich-text content, collaborative state, and parent/child tree relationships; revisions are tracked in **Revision**.\n- **Attachment**, **Comment**, **Share**, **Star**, **Subscription**, **Event** — supporting entities.\n\nSchema changes are applied through **migrations** in `server/migrations/`, and the connection is configured in `server/storage/database.ts`.",
-      "related_nodes": ["data", "mod_models", "node_document_model", "mod_database", "mod_migrations"]
+      "body_markdown": "Shared schemas in `shared/src/schemas` define API contracts for tests, runs, plans, scenarios, environments, browser sessions, issues, and AI usage. Drizzle model files under `api/src/models` define the persistence layer and are re-exported through `api/src/models/schema.ts` for migration generation.",
+      "related_nodes": [
+        "mod_shared_contracts",
+        "mod_db_models",
+        "mod_db_client_migrations",
+        "mod_environment_config"
+      ]
     },
     {
-      "id": "getting-started",
+      "id": "sec_getting_started",
       "title": "Getting Started",
-      "body_markdown": "## Getting Started\n\n1. Copy `.env.sample` to `.env` and configure Postgres, Redis, a storage backend, and at least one auth provider.\n2. Install dependencies with `yarn` (the repo uses Yarn workspaces).\n3. Run `yarn dev` to start the Vite client and the Node server with hot reload.\n4. The client entry is `app/index.tsx`; the server entry is `server/index.ts`.\n5. Add or edit rich-text features in the **shared editor schema** under `shared/editor/`, which both the client editor and the collaboration server consume.\n6. New integrations (SSO, storage, notifications) are added as **plugins** under `plugins/`.",
-      "related_nodes": ["frontend", "mod_app_entry", "mod_server_entry", "mod_shared_editor", "mod_auth_providers", "mod_storage_plugin"]
+      "body_markdown": "The root README describes building `shared`, installing dependencies with pnpm, running API migrations from `api`, starting `frontend`, `api`, and the runner-related services, and using the extension in Chrome debug mode. For local architecture exploration, start with the shared schemas, API route registration, frontend route tree, queue definitions, and worker execution path.",
+      "related_nodes": [
+        "mod_shared_contracts",
+        "mod_api_server",
+        "mod_frontend_app_shell",
+        "mod_execution_queues",
+        "mod_python_runner"
+      ]
     }
   ]
 }
