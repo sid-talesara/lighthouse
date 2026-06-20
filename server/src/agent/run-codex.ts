@@ -127,7 +127,15 @@ function emitProgress(
 function redactSensitiveText(value: string): string {
   return value
     .replace(
-      /\b(api[_-]?key|authorization|password|secret|token)\b\s*[:=]\s*("[^"]+"|'[^']+'|\S+)/gi,
+      /(["'])(api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|authorization|password|secret|token)\1\s*:\s*("[^"]+"|'[^']+'|[^,\s}]+)/gi,
+      "$1$2$1:[redacted]",
+    )
+    .replace(
+      /\b([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)=("[^"]+"|'[^']+'|\S+)/g,
+      "$1=[redacted]",
+    )
+    .replace(
+      /\b(api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|authorization|password|secret|token)\b\s*[:=]\s*("[^"]+"|'[^']+'|\S+)/gi,
       "$1=[redacted]",
     )
     .replace(/\bBearer\s+[-._~+/A-Za-z0-9]+=*/gi, "Bearer [redacted]");
@@ -187,11 +195,152 @@ function textFromUnknown(value: unknown): string | null {
   return null;
 }
 
+function commandTextFromUnknown(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      const parsedCommand = commandTextFromUnknown(parsed);
+      if (parsedCommand) return parsedCommand;
+    } catch {
+      // Plain command strings are expected here.
+    }
+
+    return trimmed;
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => (typeof entry === "string" ? entry : textFromUnknown(entry)))
+      .filter((entry): entry is string => Boolean(entry));
+    return parts.length > 0 ? parts.join(" ") : null;
+  }
+
+  const record = asRecord(value);
+  if (!record) return null;
+
+  for (const key of ["command", "cmd", "script"]) {
+    const candidate = commandTextFromUnknown(record[key]);
+    if (candidate) return candidate;
+  }
+
+  for (const key of ["arguments", "input", "args", "parameters", "params", "call"]) {
+    const candidate = commandTextFromUnknown(record[key]);
+    if (candidate) return candidate;
+  }
+
+  return null;
+}
+
+function stringField(record: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function nestedRecord(
+  record: Record<string, unknown> | null,
+  keys: string[],
+): Record<string, unknown> | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const candidate = asRecord(record[key]);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
+function extractToolName(event: Record<string, unknown>): string | null {
+  const item = asRecord(event.item);
+  const payload = asRecord(event.payload);
+  const call = nestedRecord(item, ["call"]) ?? nestedRecord(payload, ["call"]);
+
+  return (
+    stringField(event, ["tool_name", "toolName", "tool", "name"]) ??
+    stringField(item, ["tool_name", "toolName", "tool", "name"]) ??
+    stringField(payload, ["tool_name", "toolName", "tool", "name"]) ??
+    stringField(call, ["tool_name", "toolName", "tool", "name"]) ??
+    null
+  );
+}
+
+function extractPathFromRecord(record: Record<string, unknown> | null): string | null {
+  if (!record) return null;
+
+  const direct = stringField(record, ["path", "file", "filename", "file_path", "filepath", "uri"]);
+  if (direct) return direct;
+
+  for (const key of ["arguments", "input", "args", "parameters", "params", "call"]) {
+    const candidate = extractPathFromRecord(asRecord(record[key]));
+    if (candidate) return candidate;
+  }
+
+  return null;
+}
+
+function isShellToolName(toolName: string | null): boolean {
+  return !toolName || /^(bash|sh|zsh|shell|exec|exec_command|command|command_execution)$/i.test(toolName);
+}
+
+function shellLabelFor(event: Record<string, unknown>, toolName: string | null): string {
+  const item = asRecord(event.item);
+  const payload = asRecord(event.payload);
+  const shell =
+    stringField(item, ["shell", "interpreter"]) ??
+    stringField(payload, ["shell", "interpreter"]) ??
+    (toolName && /^(bash|sh|zsh)$/i.test(toolName) ? toolName : null);
+
+  return shell || "bash";
+}
+
+function formatCodexToolAction(
+  event: Record<string, unknown>,
+  itemType: string | null,
+): string | null {
+  const item = asRecord(event.item);
+  const payload = asRecord(event.payload);
+  const call = nestedRecord(item, ["call"]) ?? nestedRecord(payload, ["call"]);
+  const toolName = extractToolName(event);
+  const canUseCommandText = itemType === "command_execution" || Boolean(toolName);
+  const command = canUseCommandText
+    ? commandTextFromUnknown(item) ??
+      commandTextFromUnknown(payload) ??
+      commandTextFromUnknown(call)
+    : null;
+
+  if (command) {
+    const action = isShellToolName(toolName)
+      ? `${shellLabelFor(event, toolName)}: ${command}`
+      : `${toolName}: ${command}`;
+    return compactText(action, 600);
+  }
+
+  const path =
+    extractPathFromRecord(item) ??
+    extractPathFromRecord(payload) ??
+    extractPathFromRecord(call);
+  if (toolName && path) return compactText(`${toolName}: ${path}`, 600);
+
+  if (itemType === "command_execution" && toolName) {
+    return compactText(`Running ${toolName}.`, 600);
+  }
+
+  return null;
+}
+
 function extractCodexMessage(event: Record<string, unknown>): string {
   const type = typeof event.type === "string" ? event.type : "codex.event";
   const item = asRecord(event.item);
   const payload = asRecord(event.payload);
   const error = asRecord(event.error);
+  const itemType = typeof item?.type === "string" ? item.type : null;
+  const toolAction = formatCodexToolAction(event, itemType);
+  if (toolAction) return toolAction;
 
   const directText =
     textFromUnknown(event.message) ??
@@ -208,7 +357,6 @@ function extractCodexMessage(event: Record<string, unknown>): string {
   if (type === "turn.started") return "Analyzing repository.";
   if (type === "turn.completed") return "Repository analysis complete.";
 
-  const itemType = typeof item?.type === "string" ? item.type : null;
   if (type === "item.started" && itemType) return `Codex started ${itemType}.`;
   if (type === "item.completed" && itemType) return `Codex completed ${itemType}.`;
 
@@ -234,17 +382,24 @@ export function normalizeCodexProgressEvent(
   const item = asRecord(event.item);
   const itemType = typeof item?.type === "string" ? item.type : null;
 
-  if (
-    (codexType === "item.started" || codexType === "item.completed") &&
-    itemType === "command_execution"
-  ) {
-    return null;
+  if (codexType === "item.started" || codexType === "item.completed") {
+    const toolAction = formatCodexToolAction(event, itemType);
+    if (!toolAction) return null;
+
+    return {
+      type: "codex",
+      codexType,
+      message: codexType === "item.completed" ? `Completed ${toolAction}` : toolAction,
+    };
   }
+
+  const message = extractCodexMessage(event);
+  if (!message || isKnownCodexNoise(message)) return null;
 
   return {
     type: "codex",
     codexType,
-    message: extractCodexMessage(event),
+    message,
   };
 }
 
@@ -336,7 +491,7 @@ async function readCodexOutput(outputPath: string, stdout: string): Promise<stri
 
 export const codexAgentRunner: AgentRunner = {
   kind: "codex",
-  async run({ repoPath, prompt, model, onProgress }: RunAgentOptions): Promise<string> {
+  async run({ repoPath, prompt, model, signal, onProgress }: RunAgentOptions): Promise<string> {
     const startedAt = Date.now();
     const env = getLoginShellEnvironment();
     const codexBin = resolveCliExecutable("codex", env);
@@ -369,6 +524,7 @@ export const codexAgentRunner: AgentRunner = {
         env,
         input: prompt,
         timeoutMs: AGENT_TIMEOUT_MS,
+        signal,
         onStdoutChunk: (chunk) => {
           jsonLines.push(chunk, (line) => handleCodexJsonLine(line, onProgress, startedAt));
         },

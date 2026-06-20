@@ -45,3 +45,47 @@ RULES
 9. changed_recently must be true only for nodes whose files you can confirm were modified recently, such as git log changes in the last 14 days. Default false if uncertain.
 10. Output ONLY the JSON object. No markdown fences. No text before or after.`;
 }
+
+export function buildQueryPrompt(input: {
+  question: string;
+  evidenceJson: string;
+}): string {
+  return `You are answering a Lighthouse Ask question for a local codebase map.
+
+TASK
+Use the ranked evidence below and, when useful, inspect the repository in read-only mode. Output ONLY a single valid JSON object. No markdown fences. No prose before or after.
+
+QUESTION
+${input.question}
+
+RANKED MAP EVIDENCE
+${input.evidenceJson}
+
+SCHEMA
+{
+  "markdown": "short markdown answer",
+  "highlight_ids": ["cluster_or_node_id"],
+  "evidence_ids": ["id values from ranked evidence"],
+  "file_paths": ["relative/path.ts"],
+  "visual_blocks": [
+    {
+      "type": "diagram",
+      "title": "short title",
+      "format": "mermaid",
+      "source": "flowchart TD\\n  A[Entry] --> B[Service]"
+    }
+  ]
+}
+
+RULES
+1. Keep the answer concise and grounded in the evidence.
+2. Include only ids that appear in the ranked evidence.
+3. Prefer concrete files, modules, flows, and sections over generic advice.
+4. If the evidence is incomplete, say what the current map shows instead of inventing details.
+5. If ranked evidence contains file paths, inspect 1-3 of the most relevant paths in read-only mode before answering.
+6. If ranked evidence is empty but the question is about repository code, inspect the repository in read-only mode and answer from concrete files. Use empty highlight_ids and evidence_ids when no map ids match.
+7. file_paths may include safe relative repository paths you inspected, even when they did not appear in ranked evidence. Never include absolute paths or paths containing ..
+8. If the user asks for PR review, pull request review, change review, or includes a GitHub pull request URL, inspect the referenced PR or the local git diff in read-only mode. Lead with concrete findings and risks, not a generic summary.
+9. If the user asks for a diagram, flowchart, graph, dependency map, architecture map, or visualization, include one Mermaid flowchart in visual_blocks. Do not include HTML.
+10. Output ONLY the JSON object.`;
+}
