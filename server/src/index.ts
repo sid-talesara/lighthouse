@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { accessSync, constants } from "node:fs";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { ZodError } from "zod";
 import { buildAnalysisPrompt } from "./agent/prompt.js";
@@ -18,8 +18,8 @@ type EnvMap = Record<string, string>;
 
 const PORT = Number.parseInt(process.env.PORT ?? "3001", 10);
 const HOST = "127.0.0.1";
-const SERVER_ROOT = dirname(fileURLToPath(new URL("..", import.meta.url)));
-const DATA_JSON_PATH = join(SERVER_ROOT, "..", "public", "data.json");
+const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const DATA_JSON_PATH = join(REPO_ROOT, "public", "data.json");
 const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
 
 function parseEnvOutput(output: string): EnvMap {
