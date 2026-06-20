@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { JSX } from 'react';
 
 import { loadData } from './lib/loadData';
+import { DEFAULT_GENERATE_MODEL, type GenerateModel } from './lib/generateOptions';
 import type { LighthouseData } from './types/lighthouse';
 import { ReadingPanel } from './components/ReadingPanel';
 import { AskBox } from './components/AskBox';
@@ -10,6 +11,9 @@ import { ArchitectureView } from './components/views/ArchitectureView';
 import { FilesView } from './components/views/FilesView';
 import { DependenciesView } from './components/views/DependenciesView';
 import { FlowsView } from './components/views/FlowsView';
+import { ChangesView } from './components/views/ChangesView';
+import { DatabaseView } from './components/views/DatabaseView';
+import { FunctionsView } from './components/views/FunctionsView';
 import type { ViewId, ViewProps } from './components/views/viewContract';
 
 // View registry — each entry maps a tab to a component that satisfies the
@@ -20,14 +24,40 @@ const VIEWS: { id: ViewId; label: string; Component: (p: ViewProps) => JSX.Eleme
   { id: 'files', label: 'Files', Component: FilesView },
   { id: 'dependencies', label: 'Dependencies', Component: DependenciesView },
   { id: 'flows', label: 'Flows', Component: FlowsView },
+  { id: 'changes', label: 'Changes', Component: ChangesView },
+  { id: 'database', label: 'Database', Component: DatabaseView },
+  { id: 'functions', label: 'Functions', Component: FunctionsView },
 ];
 
 const ONBOARD_KEY = 'lh-onboard-dismissed';
+const QUERY_REPO_PATH_KEY = 'lh-query-repo-path';
+const QUERY_MODEL_KEY = 'lh-query-model';
+
+function readStoredRepoPath(): string {
+  try {
+    return localStorage.getItem(QUERY_REPO_PATH_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function readStoredModel(): GenerateModel {
+  try {
+    const stored = localStorage.getItem(QUERY_MODEL_KEY);
+    return stored === 'gpt-5.5' || stored === 'gpt-5.4' || stored === 'gpt-5.4-mini'
+      ? stored
+      : DEFAULT_GENERATE_MODEL;
+  } catch {
+    return DEFAULT_GENERATE_MODEL;
+  }
+}
 
 export default function App() {
   const [data, setData] = useState<LighthouseData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [queryRepoPath, setQueryRepoPath] = useState(readStoredRepoPath);
+  const [queryModel, setQueryModel] = useState<GenerateModel>(readStoredModel);
 
   // ── View switcher ──────────────────────────────────────────────────
   const [activeView, setActiveView] = useState<ViewId>('architecture');
@@ -78,6 +108,17 @@ export default function App() {
     setReloadKey((key) => key + 1);
   }, []);
 
+  const handleGenerateSettingsChange = useCallback((settings: { repoPath: string; model: GenerateModel }) => {
+    setQueryRepoPath(settings.repoPath);
+    setQueryModel(settings.model);
+    try {
+      localStorage.setItem(QUERY_REPO_PATH_KEY, settings.repoPath);
+      localStorage.setItem(QUERY_MODEL_KEY, settings.model);
+    } catch {
+      // Ignore storage failures; in-memory state still works.
+    }
+  }, []);
+
   const handleSelect = useCallback((id: string | null) => {
     setSelectedNodeId(id);
     setActiveSectionId(null);
@@ -109,8 +150,14 @@ export default function App() {
   const stats = useMemo(() => {
     if (!data) return null;
     const modules = data.nodes.filter((n) => n.kind === 'module').length;
-    const files = data.nodes.filter((n) => n.kind === 'file').length;
-    return { modules, files };
+    const explicitFiles = data.nodes.filter((n) => n.kind === 'file').length;
+    const indexedFiles = data.files?.length ?? 0;
+    const keyFiles = new Set(
+      data.nodes.flatMap((n) => n.key_files.filter((file) => file.trim() !== '')),
+    ).size;
+    const files = indexedFiles > 0 ? indexedFiles : explicitFiles > 0 ? explicitFiles : keyFiles;
+    const fileLabel = indexedFiles > 0 || explicitFiles > 0 ? 'files' : 'key files';
+    return { modules, files, fileLabel };
   }, [data]);
 
   // ── Error state ────────────────────────────────────────────────────
@@ -180,7 +227,13 @@ export default function App() {
         {/* Ask box — flexible right, cache-first logic intact */}
         <div className="ml-auto flex min-w-0 flex-1 justify-end">
           <div className="w-full max-w-[540px]">
-            <AskBox data={data} onAnswer={handleAskAnswer} onClear={handleAskClear} />
+            <AskBox
+              data={data}
+              repoPath={queryRepoPath}
+              model={queryModel}
+              onAnswer={handleAskAnswer}
+              onClear={handleAskClear}
+            />
           </div>
         </div>
 
@@ -188,8 +241,13 @@ export default function App() {
         <div className="hidden shrink-0 items-center gap-3 font-mono text-code text-ph-mute lg:flex">
           <Stat n={data.clusters.length} label="clusters" />
           <Stat n={stats.modules} label="modules" />
-          <Stat n={stats.files} label="files" />
-          <GeneratePanel onDone={handleGenerateDone} />
+          <Stat n={stats.files} label={stats.fileLabel} />
+          <GeneratePanel
+            onDone={handleGenerateDone}
+            initialRepoPath={queryRepoPath}
+            initialModel={queryModel}
+            onSettingsChange={handleGenerateSettingsChange}
+          />
         </div>
       </header>
 

@@ -41,5 +41,12 @@ export interface ViewProps {
   onHighlightNodes: (ids: Set<string>) => void;
 }
 
-/** The four top-level views, in tab order. */
-export type ViewId = 'architecture' | 'files' | 'dependencies' | 'flows';
+/** The top-level views, in tab order. */
+export type ViewId =
+  | 'architecture'
+  | 'files'
+  | 'dependencies'
+  | 'flows'
+  | 'changes'
+  | 'database'
+  | 'functions';
