@@ -135,11 +135,13 @@ export default function App() {
           <span className="truncate font-mono text-[13px] text-slate2-200">{data.repo.name}</span>
           <span className="truncate text-[11px] text-slate2-400">{data.repo.description}</span>
         </div>
-        <div className="ml-auto flex items-center gap-3 font-mono text-[11px] text-slate2-400">
-          <Stat n={data.clusters.length} label="clusters" />
-          <Stat n={stats.modules} label="modules" />
-          <Stat n={stats.files} label="files" />
-          {stats.changed > 0 && <Stat n={stats.changed} label="changed" accent />}
+        <div className="ml-auto flex min-w-0 items-center gap-3 font-mono text-[11px] text-slate2-400">
+          <div className="hidden items-center gap-3 sm:flex">
+            <Stat n={data.clusters.length} label="clusters" />
+            <Stat n={stats.modules} label="modules" />
+            <Stat n={stats.files} label="files" />
+            {stats.changed > 0 && <Stat n={stats.changed} label="changed" accent />}
+          </div>
           <GeneratePanel onDone={handleGenerateDone} />
         </div>
       </header>
