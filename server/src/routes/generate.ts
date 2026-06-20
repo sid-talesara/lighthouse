@@ -11,6 +11,8 @@ import type { AgentProgressEventType } from "../agent/agent-types.js";
 import { AgentCancelledError, AgentTimeoutError } from "../agent/agent-types.js";
 import { buildAnalysisPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
+import { extractDbTables } from "../repo/db-schema.js";
+import { extractPullRequests } from "../repo/git-log.js";
 import { indexTrackedFiles } from "../repo/tracked-files.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { validateRepoPath } from "../utils/path-safety.js";
@@ -259,9 +261,53 @@ async function runGeneration(options: {
       message: `Indexed ${indexedFiles.length} tracked files.`,
     });
 
+    phase = "enriching";
+    options.onProgress?.({
+      type: "status",
+      phase,
+      message: "Extracting changes, database tables, and call graph.",
+    });
+
+    const parsedNodes = Array.isArray(parsed?.nodes) ? parsed.nodes : [];
+
+    // pullRequests — derived deterministically from git history, mapped to nodes.
+    let pullRequests: unknown[] | undefined;
+    try {
+      const result = await extractPullRequests(options.repoPath, parsedNodes);
+      pullRequests = result.pullRequests;
+      // Mutate parsed nodes so changed_recently aligns with the recent commits.
+      for (const node of parsedNodes) {
+        if (result.recentlyChangedNodeIds.has(node?.id)) {
+          node.changed_recently = true;
+        }
+      }
+      options.onProgress?.({
+        type: "status",
+        phase,
+        message: `Derived ${pullRequests.length} change records from git history.`,
+      });
+    } catch (error) {
+      console.error("[companion] pullRequests extraction failed:", formatError(error));
+    }
+
+    // dbTables — derived deterministically by scanning Drizzle schema files.
+    let dbTables: unknown[] | undefined;
+    try {
+      dbTables = await extractDbTables(options.repoPath, indexedFiles, parsedNodes);
+      options.onProgress?.({
+        type: "status",
+        phase,
+        message: `Found ${dbTables.length} database tables.`,
+      });
+    } catch (error) {
+      console.error("[companion] dbTables extraction failed:", formatError(error));
+    }
+
     const validated = LighthouseDataSchema.parse({
       ...parsed,
       files: indexedFiles,
+      ...(pullRequests ? { pullRequests } : {}),
+      ...(dbTables ? { dbTables } : {}),
     });
 
     phase = "write";
