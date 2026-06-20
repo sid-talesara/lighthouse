@@ -6,8 +6,11 @@
  * styling. Cross-view links are wired through onSelectNode / onHighlightNodes.
  */
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import type { LighthouseData, LighthouseNode } from '../../types/lighthouse';
+import { askMap, type AskResult } from '../../lib/ask';
+import type { GenerateModel } from '../../lib/generateOptions';
 
 // ─── Tree Data Model ──────────────────────────────────────────────────────────
 
@@ -360,6 +363,8 @@ interface FileTreeProps {
   highlightedNodeIds: Set<string>;
   onSelectNode: (id: string | null) => void;
   onHighlightNodes: (ids: Set<string>) => void;
+  repoPath?: string;
+  model?: GenerateModel;
 }
 
 export function FileTree({
@@ -368,8 +373,14 @@ export function FileTree({
   highlightedNodeIds,
   onSelectNode,
   onHighlightNodes,
+  repoPath,
+  model,
 }: FileTreeProps) {
   const [query, setQuery] = useState('');
+  const [agentResult, setAgentResult] = useState<AskResult | null>(null);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const nodeById = useMemo(() => {
     const map = new Map<string, LighthouseNode>();
@@ -396,6 +407,52 @@ export function FileTree({
     return count;
   }, [rawTree]);
 
+  const runAgentSearch = useCallback(async () => {
+    const trimmed = query.trim();
+    if (!trimmed || agentLoading) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setAgentLoading(true);
+    setAgentError(null);
+    setAgentResult(null);
+
+    try {
+      const result = await askMap(trimmed, data, {
+        repoPath,
+        model,
+        signal: controller.signal,
+      });
+      setAgentResult(result);
+      onHighlightNodes(new Set(result.highlight_ids));
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setAgentError('Search stopped.');
+      } else {
+        setAgentError(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      setAgentLoading(false);
+    }
+  }, [agentLoading, data, model, onHighlightNodes, query, repoPath]);
+
+  const stopAgentSearch = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setAgentLoading(false);
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setQuery('');
+    setAgentResult(null);
+    setAgentError(null);
+    setAgentLoading(false);
+  }, []);
+
   return (
     <div className="flex h-full flex-col">
       {/* Search bar */}
@@ -407,30 +464,80 @@ export function FileTree({
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter files…"
-            className="w-full rounded-ph bg-ph-canvas border border-ph-border pl-8 pr-3 py-1.5 font-mono text-[12px] text-ph-ink placeholder:text-ph-ash focus:outline-none focus:border-ph-blue focus:shadow-ph-focus transition-shadow"
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setAgentResult(null);
+              setAgentError(null);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void runAgentSearch();
+              }
+            }}
+            placeholder="Filter files or ask local Codex…"
+            className="w-full rounded-ph bg-ph-canvas border border-ph-border pl-8 pr-24 py-1.5 font-mono text-[12px] text-ph-ink placeholder:text-ph-ash focus:outline-none focus:border-ph-blue focus:shadow-ph-focus transition-shadow"
           />
           {query && (
             <button
               type="button"
-              onClick={() => setQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-ph-ash hover:text-ph-body text-[13px]"
+              onClick={clearSearch}
+              className="absolute right-[78px] top-1/2 -translate-y-1/2 text-ph-ash hover:text-ph-body text-[13px]"
             >
               ✕
             </button>
           )}
+          <button
+            type="button"
+            disabled={!query.trim() || agentLoading}
+            onClick={() => void runAgentSearch()}
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded-ph-sm border border-ph-yellow-pressed bg-ph-yellow px-2 py-1 font-sans text-[11px] font-bold text-ph-ink transition-colors hover:bg-ph-yellow-pressed disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {agentLoading ? 'Asking' : 'Ask Codex'}
+          </button>
         </div>
         <div className="mt-1.5 font-sans text-[11px] text-ph-ash">
           {totalFiles} {(data.files?.length ?? 0) > 0 ? 'files' : 'key files'} · {data.nodes.length} modules
         </div>
+        {(agentLoading || agentError || agentResult) && (
+          <div className="mt-2 rounded-ph-sm border border-ph-border bg-ph-canvas px-3 py-2">
+            {agentLoading && (
+              <div className="flex items-center justify-between gap-2 font-sans text-[12px] text-ph-body">
+                <span>Running Local Codex search…</span>
+                <button
+                  type="button"
+                  onClick={stopAgentSearch}
+                  className="rounded-ph-sm border border-ph-red/30 bg-ph-red-soft px-2 py-0.5 font-bold text-ph-red"
+                >
+                  Stop
+                </button>
+              </div>
+            )}
+            {agentError && (
+              <div className="font-sans text-[12px] text-ph-red">{agentError}</div>
+            )}
+            {agentResult && !agentError && (
+              <FileSearchAgentResult result={agentResult} />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tree */}
       <div className="lh-scroll flex-1 overflow-y-auto px-2 py-2">
         {displayTree.children.length === 0 ? (
           <div className="px-4 py-8 text-center font-sans text-body-sm text-ph-ash">
-            {query ? `No files matching "${query}"` : 'No files found.'}
+            <div>{query ? `No files matching "${query}"` : 'No files found.'}</div>
+            {query && (
+              <button
+                type="button"
+                disabled={agentLoading}
+                onClick={() => void runAgentSearch()}
+                className="mt-3 rounded-ph border border-ph-yellow-pressed bg-ph-yellow px-3 py-1.5 font-sans text-[12px] font-bold text-ph-ink transition-colors hover:bg-ph-yellow-pressed disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Ask Local Codex about this search
+              </button>
+            )}
           </div>
         ) : (
           <ul>
@@ -463,6 +570,74 @@ export function FileTree({
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+function FileSearchAgentResult({ result }: { result: AskResult }) {
+  return (
+    <div className="space-y-2 text-left">
+      <div className="flex items-center gap-2">
+        <span
+          className={[
+            'rounded-ph-pill px-2 py-0.5 font-sans text-[10px] font-bold uppercase tracking-wider',
+            result.source === 'local-codex'
+              ? 'bg-ph-green-soft text-ph-green'
+              : result.source === 'local-index'
+                ? 'bg-ph-blue-soft text-ph-blue-teal'
+                : result.source === 'no-match'
+                  ? 'bg-ph-red-soft text-ph-red'
+                  : 'bg-ph-surface-soft text-ph-body',
+          ].join(' ')}
+        >
+          {result.source === 'local-codex'
+            ? 'Local Codex'
+            : result.source === 'local-index'
+              ? 'Local Index'
+              : result.source === 'no-match'
+                ? 'No Match'
+                : 'Demo'}
+        </span>
+        <span className="ml-auto font-mono text-[10px] text-ph-ash">
+          {result.highlight_ids.length} nodes
+        </span>
+      </div>
+      <div className="line-clamp-4 font-body text-[12px] leading-relaxed text-ph-body [&_strong]:font-semibold [&_strong]:text-ph-ink">
+        <ReactMarkdown>{result.markdown}</ReactMarkdown>
+      </div>
+      <div className="rounded-ph-sm border border-ph-border bg-ph-surface px-2 py-1.5 font-sans text-[11px] leading-snug text-ph-mute">
+        <div>{result.source_reason}</div>
+        <div>
+          Indexing mode: {result.indexing_mode === 'local-codex-with-map-evidence'
+            ? 'deterministic map evidence + local Codex'
+            : result.indexing_mode === 'local-codex-direct'
+              ? 'local Codex direct repo search'
+              : 'deterministic map evidence'}
+        </div>
+      </div>
+      {result.query_events.length > 0 && (
+        <div className="max-h-20 overflow-y-auto rounded-ph-sm border border-ph-border bg-ph-surface p-2">
+          {result.query_events.slice(-4).map((event, index) => (
+            <div key={`${event.elapsedMs}-${event.message}-${index}`} className="flex gap-2 font-mono text-[10px] text-ph-body">
+              <span className="shrink-0 text-ph-ash">{Math.floor(event.elapsedMs / 1000)}s</span>
+              <span className="min-w-0 break-words">{event.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {result.file_paths.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {result.file_paths.slice(0, 4).map((filePath) => (
+            <span
+              key={filePath}
+              className="max-w-full truncate rounded-ph-sm border border-ph-border bg-ph-surface px-1.5 py-0.5 font-mono text-[10px] text-ph-body"
+              title={filePath}
+            >
+              {filePath}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

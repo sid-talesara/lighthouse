@@ -17,6 +17,9 @@ export function FilesView({
   highlightedNodeIds,
   onSelectNode,
   onHighlightNodes,
+  onOpenWiki,
+  repoPath,
+  model,
 }: ViewProps) {
   // Determine what's currently selected for the header blurb
   const selectedNode = selectedNodeId
@@ -42,6 +45,15 @@ export function FilesView({
                 : 'Browse key files from the architecture map.'}
           </p>
         </div>
+        {selectedNode && onOpenWiki && (
+          <button
+            type="button"
+            onClick={() => onOpenWiki(selectedNode.id)}
+            className="shrink-0 rounded-ph border border-ph-yellow-pressed bg-ph-yellow px-3 py-1.5 font-sans text-[12px] font-bold text-ph-ink hover:bg-ph-yellow-pressed transition-colors"
+          >
+            Open wiki →
+          </button>
+        )}
         {selectedNode && (
           <button
             type="button"
@@ -64,6 +76,8 @@ export function FilesView({
           highlightedNodeIds={highlightedNodeIds}
           onSelectNode={onSelectNode}
           onHighlightNodes={onHighlightNodes}
+          repoPath={repoPath}
+          model={model}
         />
       </div>
     </div>

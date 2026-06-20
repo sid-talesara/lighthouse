@@ -15,6 +15,8 @@ export function ArchitectureView({
   selectedNodeId,
   highlightedNodeIds,
   onSelectNode,
+  onOpenWiki,
+  showWikiHint,
 }: ViewProps) {
   return (
     <div className="relative h-full w-full">
@@ -23,6 +25,8 @@ export function ArchitectureView({
         selectedNodeId={selectedNodeId}
         highlightedNodeIds={highlightedNodeIds}
         onSelectNode={onSelectNode}
+        onOpenWiki={onOpenWiki}
+        showWikiHint={showWikiHint}
       />
     </div>
   );

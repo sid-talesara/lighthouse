@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import type { ViewProps } from './viewContract';
 import type { LighthouseNode } from '../../types/lighthouse';
 import { CallGraph } from './CallGraph';
+import { OpenWikiOverlay } from './OpenWikiOverlay';
 
 export function FunctionsView({
   data,
@@ -16,6 +17,7 @@ export function FunctionsView({
   highlightedNodeIds,
   onSelectNode,
   onHighlightNodes,
+  onOpenWiki,
 }: ViewProps) {
   const functions = data.functions ?? [];
   const calls = data.calls ?? [];
@@ -178,6 +180,7 @@ export function FunctionsView({
           onSelectNode={onSelectNode}
           onHighlightNodes={onHighlightNodes}
         />
+        <OpenWikiOverlay data={data} selectedNodeId={selectedNodeId} onOpenWiki={onOpenWiki} />
       </div>
     </div>
   );

@@ -14,11 +14,17 @@
 
 import type { ViewProps } from './viewContract';
 import { DepsGraph } from './DepsGraph';
+import { OpenWikiOverlay } from './OpenWikiOverlay';
 
 export function DependenciesView(props: ViewProps) {
   return (
     <div className="relative h-full w-full overflow-hidden">
       <DepsGraph {...props} />
+      <OpenWikiOverlay
+        data={props.data}
+        selectedNodeId={props.selectedNodeId}
+        onOpenWiki={props.onOpenWiki}
+      />
     </div>
   );
 }
