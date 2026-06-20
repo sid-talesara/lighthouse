@@ -64,31 +64,14 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
   };
 
   return (
-    <div className="pointer-events-auto flex w-full max-w-[540px] flex-col gap-2">
-      {/* Chip suggestions */}
-      {!result && !loading && (
-        <div className="flex flex-wrap justify-center gap-1.5">
-          {DEMO_QUESTIONS.map((dq) => (
-            <button
-              key={dq}
-              onClick={() => handleChip(dq)}
-              className="rounded-full border border-beacon-500/30 bg-abyss-800/80 px-3 py-1 font-mono text-[11px] text-beacon-300/90 backdrop-blur-md transition-colors hover:border-beacon-400/60 hover:bg-beacon-500/10 hover:text-beacon-200"
-            >
-              {dq}
-            </button>
-          ))}
-        </div>
-      )}
-
+    <div className="pointer-events-auto relative flex w-full flex-col gap-2">
       {/* Input row */}
       <form
         onSubmit={handleSubmit}
-        className="flex items-center gap-2 rounded-2xl border border-slate2-400/20 bg-abyss-800/80 px-4 py-2.5 shadow-[0_4px_24px_rgba(0,0,0,0.5)] backdrop-blur-md"
+        className="flex items-center gap-2 rounded-ph border border-ph-border bg-ph-canvas px-3 py-1.5 transition-shadow duration-100 focus-within:border-ph-blue focus-within:shadow-ph-focus"
       >
-        {/* Beacon icon */}
-        <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
-          <span className="absolute inset-0 rounded-full bg-beacon-500/10" />
-          <span className="h-2 w-2 rounded-full bg-beacon-400 shadow-[0_0_8px_2px_rgba(242,185,104,0.5)]" />
+        <span className="shrink-0 text-base" aria-hidden>
+          🔍
         </span>
 
         <input
@@ -98,22 +81,22 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
           onChange={(e) => setQuestion(e.target.value)}
           placeholder={
             hasKey
-              ? "Ask anything about this codebase…"
-              : "Ask a demo question or add VITE_ANTHROPIC_API_KEY for live answers…"
+              ? "Ask it anything — it reads the whole map…"
+              : "Ask a demo question (or add VITE_ANTHROPIC_API_KEY for live answers)…"
           }
           disabled={loading}
-          className="min-w-0 flex-1 bg-transparent font-sans text-[14px] text-slate2-100 placeholder:text-slate2-400/60 focus:outline-none disabled:opacity-50"
+          className="min-w-0 flex-1 bg-transparent font-body text-sm text-ph-ink placeholder:text-ph-ash focus:outline-none disabled:opacity-50"
         />
 
         {loading && (
-          <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-beacon-500/30 border-t-beacon-400" />
+          <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-ph-border border-t-ph-yellow" />
         )}
 
         {result && (
           <button
             type="button"
             onClick={handleClear}
-            className="shrink-0 rounded-full px-2 py-0.5 font-mono text-[11px] text-slate2-400 transition-colors hover:text-slate2-200"
+            className="shrink-0 rounded-ph-sm px-1.5 py-0.5 font-sans text-label text-ph-ash transition-colors hover:text-ph-ink"
             title="Clear"
           >
             ✕
@@ -123,36 +106,57 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
         <button
           type="submit"
           disabled={loading || !question.trim()}
-          className="shrink-0 rounded-xl bg-beacon-500/15 px-3 py-1 font-mono text-[12px] text-beacon-300 transition-colors hover:bg-beacon-500/25 hover:text-beacon-200 disabled:cursor-not-allowed disabled:opacity-40"
+          className="shrink-0 rounded-ph border border-ph-yellow-pressed bg-ph-yellow px-3.5 py-1.5 font-sans text-sm font-bold text-ph-ink transition-colors duration-75 hover:bg-ph-yellow-pressed active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
         >
           Ask
         </button>
       </form>
 
+      {/* Chip suggestions */}
+      {!result && !loading && (
+        <div className="flex flex-wrap gap-1.5">
+          {DEMO_QUESTIONS.map((dq) => (
+            <button
+              key={dq}
+              onClick={() => handleChip(dq)}
+              className="rounded-ph-pill border border-ph-border bg-ph-surface px-3 py-1 font-sans text-label text-ph-mute transition-colors hover:border-ph-yellow hover:text-ph-ink"
+            >
+              {dq}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Error state */}
       {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 font-sans text-[13px] text-red-300/90 backdrop-blur-md">
+        <div className="rounded-ph border border-ph-red bg-ph-red-soft px-4 py-3 font-body text-body-sm text-ph-red">
           {error}
         </div>
       )}
 
-      {/* Answer card */}
+      {/* Answer card — floats below the input over content */}
       {result && !error && (
-        <div className="rounded-2xl border border-beacon-500/20 bg-abyss-800/90 px-5 py-4 shadow-[0_4px_24px_rgba(0,0,0,0.5)] backdrop-blur-md">
+        <div className="absolute right-0 top-full z-30 mt-2 w-full max-w-[540px] rounded-ph border border-ph-border bg-ph-surface px-5 py-4 shadow-ph-float">
           {/* Source badge */}
           <div className="mb-2.5 flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-beacon-400 shadow-[0_0_6px_2px_rgba(242,185,104,0.5)]" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-beacon-400/70">
+            <span
+              className={[
+                'rounded-ph-pill px-2.5 py-0.5 font-sans text-label uppercase tracking-wider',
+                result.source === "cache"
+                  ? 'bg-ph-surface-soft text-ph-body'
+                  : 'bg-ph-green-soft text-ph-green',
+              ].join(' ')}
+            >
               {result.source === "cache" ? "Demo answer" : "Live answer"}
             </span>
-            <span className="ml-auto font-mono text-[10px] text-slate2-400/50">
+            <span className="ml-auto font-mono text-code text-ph-ash">
               {result.highlight_ids.length} node
               {result.highlight_ids.length !== 1 ? "s" : ""} highlighted
             </span>
           </div>
 
           {/* Explanation */}
-          <div className="text-[13.5px] leading-relaxed text-slate2-200 [&_strong]:font-semibold [&_strong]:text-slate2-100">
+          <div className="font-body text-body-sm leading-relaxed text-ph-body [&_strong]:font-semibold [&_strong]:text-ph-ink">
             <ReactMarkdown>{result.explanation}</ReactMarkdown>
           </div>
 
@@ -161,7 +165,7 @@ export function AskBox({ data, onAnswer, onClear }: AskBoxProps) {
             {result.highlight_ids.map((id) => (
               <span
                 key={id}
-                className="rounded-full border border-beacon-500/20 bg-beacon-500/10 px-2 py-0.5 font-mono text-[10px] text-beacon-300/80"
+                className="rounded-ph-pill border border-ph-blue-soft bg-ph-blue-soft px-2 py-0.5 font-mono text-code text-ph-blue-teal"
               >
                 {id}
               </span>
