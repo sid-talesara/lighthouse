@@ -1,31 +1,42 @@
 /**
- * FlowPlayer — animated step-by-step walkthrough engine for a single Flow.
+ * FlowPlayer — the player engine for a single Flow.
  *
- * Responsibilities:
- *  - Renders a vertical timeline of steps (past → active → future).
- *  - Prev / Next / Play controls auto-advance through steps.
- *  - Calls onStepChange whenever the active step changes so the parent can
- *    drive onSelectNode / onHighlightNodes.
- *  - Reflects an incomingActiveIndex override (driven by selectedNodeId
- *    from other views).
- *  - PostHog-inspired styling: cream canvas, white cards, olive borders,
- *    yellow (#F7A501) accent for the active step.
+ * This is the single source of truth for `activeStep` and play state. It wires
+ * three synced surfaces from the same step value so they can never drift:
+ *
+ *   1. FlowTrace   — the animated SVG map; a pulse travels node→node and the
+ *                    active node pops with ph-yellow.
+ *   2. SequenceRail — a sequence-diagram rail; the active step's row glows.
+ *   3. Detail strip — description, node label, owning module/cluster + a
+ *                    relevant function name for the active step.
+ *
+ * Controls: Prev / Play-Pause / Next, ~1s auto-advance. The interval lives in a
+ * ref and is torn down on pause, unmount, flow change, and end-of-flow, so no
+ * timer ever leaks and the pulse never teleports.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Flow, LighthouseNode } from '../../types/lighthouse';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Flow, FunctionNode, LighthouseData } from '../../types/lighthouse';
+import { FlowTrace } from './FlowTrace';
+import { SequenceRail } from './SequenceRail';
+import {
+  buildLookups,
+  deriveParticipants,
+  pickFunctionForModule,
+} from './flowEngine';
 
-// ─── Icon primitives (inline SVG, no dep needed) ───────────────────────────
+const PLAY_INTERVAL_MS = 1100;
 
-function IconPlay({ size = 16 }: { size?: number }) {
+// ─── Icons ───────────────────────────────────────────────────────────────────
+
+function IconPlay({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
       <path d="M4 2.5l9 5.5-9 5.5V2.5z" fill="currentColor" />
     </svg>
   );
 }
-
-function IconPause({ size = 16 }: { size?: number }) {
+function IconPause({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
       <rect x="3" y="2" width="4" height="12" rx="1" fill="currentColor" />
@@ -33,16 +44,14 @@ function IconPause({ size = 16 }: { size?: number }) {
     </svg>
   );
 }
-
-function IconChevronLeft({ size = 16 }: { size?: number }) {
+function IconChevronLeft({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
       <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
-
-function IconChevronRight({ size = 16 }: { size?: number }) {
+function IconChevronRight({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden>
       <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -50,48 +59,85 @@ function IconChevronRight({ size = 16 }: { size?: number }) {
   );
 }
 
-// ─── Types ──────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface FlowPlayerProps {
   flow: Flow;
-  /** Lookup map from node id → node (for resolving labels). */
-  nodeMap: Map<string, LighthouseNode>;
-  /**
-   * Fired whenever the active step index changes.
-   * Parent uses this to call onSelectNode / onHighlightNodes.
-   */
+  data: LighthouseData;
+  /** Fired whenever the active step changes (parent drives cross-view sync). */
   onStepChange: (stepIndex: number, nodeId: string) => void;
-  /**
-   * When another view selects a node that belongs to this flow, the parent
-   * can force the active step to a specific index. Pass -1 or undefined to
-   * leave the player in control.
-   */
+  /** Force the active step to a specific index (from incoming selectedNodeId). */
   forcedStepIndex?: number;
 }
 
-const PLAY_INTERVAL_MS = 900;
+// ─── Small control button ────────────────────────────────────────────────────
 
-// ─── Step state helpers ──────────────────────────────────────────────────────
-
-type StepState = 'past' | 'active' | 'future';
-
-function stepState(index: number, activeIndex: number): StepState {
-  if (index < activeIndex) return 'past';
-  if (index === activeIndex) return 'active';
-  return 'future';
+function CtrlButton({
+  onClick,
+  disabled,
+  label,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 32,
+        height: 32,
+        borderRadius: 6,
+        border: '1px solid #BFC1B7',
+        background: '#FFFFFF',
+        color: disabled ? '#B6B7AF' : '#4D4F46',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        transition: 'background 75ms',
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = '#E5E7E0';
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = '#FFFFFF';
+      }}
+    >
+      {children}
+    </button>
+  );
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function FlowPlayer({ flow, nodeMap, onStepChange, forcedStepIndex }: FlowPlayerProps) {
+export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPlayerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastForcedRef = useRef<number | undefined>(undefined);
-
   const totalSteps = flow.steps.length;
 
-  // ── Sync forced step from parent (incoming selectedNodeId) ────────────────
+  // ── Derived model (memoized) ──────────────────────────────────────────────
+  const lookups = useMemo(() => buildLookups(data), [data]);
+  const participants = useMemo(
+    () => deriveParticipants(flow, lookups.nodeById, lookups.clusterById),
+    [flow, lookups],
+  );
+
+  // ── Active step facts for the detail strip ────────────────────────────────
+  const activeStep = flow.steps[activeIndex];
+  const activeNode = activeStep ? lookups.nodeById.get(activeStep.node) : undefined;
+  const activeCluster = activeNode ? lookups.clusterById.get(activeNode.parent) : undefined;
+  const activeFn: FunctionNode | undefined = activeStep
+    ? pickFunctionForModule(data.functions, activeStep.node)
+    : undefined;
+
+  // ── Forced step from parent (incoming selectedNodeId) ─────────────────────
   useEffect(() => {
     if (
       forcedStepIndex !== undefined &&
@@ -105,42 +151,36 @@ export function FlowPlayer({ flow, nodeMap, onStepChange, forcedStepIndex }: Flo
     }
   }, [forcedStepIndex, activeIndex]);
 
-  // ── Notify parent when activeIndex changes ────────────────────────────────
+  // ── Notify parent on step change ──────────────────────────────────────────
   useEffect(() => {
     const step = flow.steps[activeIndex];
-    if (step) {
-      onStepChange(activeIndex, step.node);
-    }
-  // onStepChange identity may change; only trigger on index / flow change
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (step) onStepChange(activeIndex, step.node);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, flow]);
 
-  // ── Auto-play interval ────────────────────────────────────────────────────
-  // Use a ref to track totalSteps inside the interval callback without
-  // re-creating the interval on every render.
+  // ── Auto-play interval (ref-stored, clean teardown) ───────────────────────
   const totalStepsRef = useRef(totalSteps);
-  useEffect(() => { totalStepsRef.current = totalSteps; }, [totalSteps]);
+  useEffect(() => {
+    totalStepsRef.current = totalSteps;
+  }, [totalSteps]);
 
   useEffect(() => {
-    // Clear any existing interval first
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-
     if (!isPlaying) return;
 
     intervalRef.current = setInterval(() => {
       setActiveIndex((prev) => {
         const next = prev + 1;
         if (next >= totalStepsRef.current) {
-          // Reached last step — clear interval and stop, stay on last step
           if (intervalRef.current) {
             clearInterval(intervalRef.current);
             intervalRef.current = null;
           }
           setIsPlaying(false);
-          return prev; // stay on last step; keeps highlight
+          return prev; // stay on last step
         }
         return next;
       });
@@ -167,7 +207,6 @@ export function FlowPlayer({ flow, nodeMap, onStepChange, forcedStepIndex }: Flo
 
   const togglePlay = useCallback(() => {
     setIsPlaying((p) => {
-      // If at the end and pressing play, restart from beginning
       if (!p && activeIndex >= totalSteps - 1) {
         setActiveIndex(0);
         return true;
@@ -181,81 +220,67 @@ export function FlowPlayer({ flow, nodeMap, onStepChange, forcedStepIndex }: Flo
     setActiveIndex(index);
   }, []);
 
-  // ─── Render ───────────────────────────────────────────────────────────────
-  return (
-    <div className="flex flex-col gap-0">
+  const selectParticipant = useCallback(
+    (nodeId: string) => {
+      const idx = flow.steps.findIndex((s) => s.node === nodeId);
+      if (idx >= 0) goToStep(idx);
+    },
+    [flow, goToStep],
+  );
 
-      {/* ── Player controls bar ─────────────────────────────────────────── */}
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* ── Controls bar ────────────────────────────────────────────────── */}
       <div
-        className="flex items-center gap-2 border-b border-ph-border bg-ph-surface px-5 py-3"
-        style={{ borderTop: '1px solid #BFC1B7' }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          borderTop: '1px solid #BFC1B7',
+          borderBottom: '1px solid #BFC1B7',
+          background: '#FFFFFF',
+          padding: '10px 20px',
+        }}
       >
-        {/* Step counter */}
         <span
-          className="mr-2 font-mono text-[11px] font-medium text-ph-mute"
-          style={{ letterSpacing: '0.05em' }}
+          style={{
+            fontFamily: '"IBM Plex Mono", monospace',
+            fontSize: 11,
+            fontWeight: 500,
+            letterSpacing: '0.05em',
+            color: '#6C6E63',
+            marginRight: 4,
+          }}
         >
           STEP {activeIndex + 1} / {totalSteps}
         </span>
 
         {/* Progress dots */}
-        <div className="flex flex-1 items-center gap-1.5">
-          {flow.steps.map((_, i) => {
-            const state = stepState(i, activeIndex);
-            return (
-              <button
-                key={i}
-                onClick={() => goToStep(i)}
-                title={`Go to step ${i + 1}`}
-                aria-label={`Go to step ${i + 1}`}
-                style={{
-                  width: state === 'active' ? 20 : 8,
-                  height: 8,
-                  borderRadius: 4,
-                  border: 'none',
-                  cursor: 'pointer',
-                  transition: 'all 200ms ease-out',
-                  backgroundColor:
-                    state === 'active'
-                      ? '#F7A501'
-                      : state === 'past'
-                      ? '#BFC1B7'
-                      : '#E5E7E0',
-                }}
-              />
-            );
-          })}
+        <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 6 }}>
+          {flow.steps.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => goToStep(i)}
+              aria-label={`Go to step ${i + 1}`}
+              style={{
+                width: i === activeIndex ? 20 : 8,
+                height: 8,
+                borderRadius: 4,
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'all 200ms ease-out',
+                backgroundColor:
+                  i === activeIndex ? '#F7A501' : i < activeIndex ? '#BFC1B7' : '#E5E7E0',
+              }}
+            />
+          ))}
         </div>
 
-        {/* Prev / Play / Next */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={goToPrev}
-            disabled={activeIndex === 0}
-            aria-label="Previous step"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 32,
-              height: 32,
-              borderRadius: 6,
-              border: '1px solid #BFC1B7',
-              background: '#FFFFFF',
-              color: activeIndex === 0 ? '#B6B7AF' : '#4D4F46',
-              cursor: activeIndex === 0 ? 'not-allowed' : 'pointer',
-              transition: 'background 75ms',
-            }}
-            onMouseEnter={(e) => {
-              if (activeIndex !== 0) (e.currentTarget as HTMLButtonElement).style.background = '#E5E7E0';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = '#FFFFFF';
-            }}
-          >
-            <IconChevronLeft size={14} />
-          </button>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <CtrlButton onClick={goToPrev} disabled={activeIndex === 0} label="Previous step">
+            <IconChevronLeft />
+          </CtrlButton>
           <button
             onClick={togglePlay}
             aria-label={isPlaying ? 'Pause' : 'Play'}
@@ -286,253 +311,139 @@ export function FlowPlayer({ flow, nodeMap, onStepChange, forcedStepIndex }: Flo
               (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)';
             }}
           >
-            {isPlaying ? <IconPause size={14} /> : <IconPlay size={14} />}
+            {isPlaying ? <IconPause /> : <IconPlay />}
           </button>
-
-          <button
-            onClick={goToNext}
-            disabled={activeIndex === totalSteps - 1}
-            aria-label="Next step"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 32,
-              height: 32,
-              borderRadius: 6,
-              border: '1px solid #BFC1B7',
-              background: '#FFFFFF',
-              color: activeIndex === totalSteps - 1 ? '#B6B7AF' : '#4D4F46',
-              cursor: activeIndex === totalSteps - 1 ? 'not-allowed' : 'pointer',
-              transition: 'background 75ms',
-            }}
-            onMouseEnter={(e) => {
-              if (activeIndex !== totalSteps - 1)
-                (e.currentTarget as HTMLButtonElement).style.background = '#E5E7E0';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = '#FFFFFF';
-            }}
-          >
-            <IconChevronRight size={14} />
-          </button>
+          <CtrlButton onClick={goToNext} disabled={activeIndex === totalSteps - 1} label="Next step">
+            <IconChevronRight />
+          </CtrlButton>
         </div>
       </div>
 
-      {/* ── Timeline ───────────────────────────────────────────────────────── */}
-      <ol className="relative px-5 py-4" style={{ listStyle: 'none', margin: 0 }}>
-        {/* Vertical connector line behind all steps */}
-        <li
-          aria-hidden
-          style={{
-            position: 'absolute',
-            left: 38,
-            top: 32,
-            bottom: 32,
-            width: 2,
-            borderRadius: 1,
-            background: '#E5E7E0',
-            pointerEvents: 'none',
-          }}
+      {/* ── Two synced surfaces ─────────────────────────────────────────── */}
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Map trace */}
+        <FlowTrace
+          flow={flow}
+          participants={participants}
+          edges={data.edges}
+          activeStep={activeIndex}
+          onSelectParticipant={selectParticipant}
         />
 
-        {flow.steps.map((step, i) => {
-          const state = stepState(i, activeIndex);
-          const node = nodeMap.get(step.node);
-          const label = node?.label ?? step.node;
-
-          // Active step: full opacity, yellow accent, white card with border highlight
-          // Past step: muted (done indicator), reduced opacity card
-          // Future step: faded out, lighter border
-
-          const isActive = state === 'active';
-          const isPast = state === 'past';
-
-          return (
-            <li
-              key={`${flow.name}-step-${i}`}
-              onClick={() => goToStep(i)}
-              role="button"
-              tabIndex={0}
-              aria-current={isActive ? 'step' : undefined}
-              onKeyDown={(e) => e.key === 'Enter' && goToStep(i)}
+        {/* Detail strip */}
+        <div
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid #BFC1B7',
+            borderLeft: '3px solid #F7A501',
+            borderRadius: 6,
+            padding: '12px 16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span
               style={{
-                position: 'relative',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 14,
-                marginBottom: i < totalSteps - 1 ? 16 : 0,
-                cursor: 'pointer',
-                opacity: state === 'future' ? 0.45 : 1,
-                transition: 'opacity 200ms ease-out',
+                fontFamily: '"Nunito", system-ui, sans-serif',
+                fontSize: 14,
+                fontWeight: 800,
+                color: '#151515',
               }}
             >
-              {/* Step number bubble */}
-              <div
+              {activeNode?.label ?? activeStep?.node ?? '—'}
+            </span>
+            {activeCluster && (
+              <span
                 style={{
-                  flexShrink: 0,
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 1,
-                  fontSize: 12,
-                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: 9999,
+                  background: '#E5E7E0',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  color: '#4D4F46',
                   fontFamily: '"Nunito", system-ui, sans-serif',
-                  transition: 'background 200ms ease-out, color 200ms ease-out, border-color 200ms ease-out',
-                  background: isActive
-                    ? '#F7A501'
-                    : isPast
-                    ? '#E5E7E0'
-                    : '#FFFFFF',
-                  color: isActive ? '#23251D' : isPast ? '#6C6E63' : '#9B9C92',
-                  border: isActive
-                    ? '2px solid #DD9001'
-                    : isPast
-                    ? '2px solid #BFC1B7'
-                    : '2px solid #E5E7E0',
                 }}
               >
-                {isPast ? (
-                  // Checkmark for completed steps
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                    <path
-                      d="M2 6l3 3 5-5"
-                      stroke="#6C6E63"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                ) : (
-                  i + 1
-                )}
-              </div>
-
-              {/* Step card */}
-              <div
+                {activeCluster.label}
+              </span>
+            )}
+            {activeFn && (
+              <code
                 style={{
-                  flex: 1,
-                  borderRadius: 6,
-                  border: isActive ? '1.5px solid #F7A501' : '1px solid #BFC1B7',
-                  borderLeft: isActive ? '3px solid #F7A501' : isPast ? '3px solid #BFC1B7' : '3px solid #E5E7E0',
-                  background: isActive ? 'rgba(247,165,1,0.06)' : '#FFFFFF',
-                  padding: '12px 14px',
-                  transition:
-                    'border-color 200ms ease-out, background 200ms ease-out, box-shadow 200ms ease-out, transform 200ms ease-out',
-                  boxShadow: isActive
-                    ? '0 0 0 3px rgba(247,165,1,0.15)'
-                    : 'none',
-                  transform: isActive ? 'translateX(2px)' : 'translateX(0)',
-                  // Animate card entrance when it becomes active
-                  animation: isActive ? 'flowStepActivate 220ms ease-out both' : undefined,
+                  fontFamily: '"IBM Plex Mono", monospace',
+                  fontSize: 11,
+                  color: '#6C6E63',
+                  background: '#E5E7E0',
+                  borderRadius: 4,
+                  padding: '1px 6px',
                 }}
               >
-                {/* Node label */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    marginBottom: 4,
-                  }}
-                >
-                  {isActive && (
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        background: '#F7A501',
-                        flexShrink: 0,
-                        animation: 'flowPulse 1.5s ease-in-out infinite',
-                      }}
-                    />
-                  )}
-                  <span
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 700,
-                      fontFamily: '"Nunito", system-ui, sans-serif',
-                      color: isActive ? '#151515' : '#4D4F46',
-                      transition: 'color 200ms ease-out',
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {label}
-                  </span>
-                </div>
+                {activeFn.name}()
+              </code>
+            )}
+          </div>
+          <p
+            style={{
+              margin: '6px 0 0',
+              fontSize: 13,
+              lineHeight: 1.5,
+              color: '#4D4F46',
+              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+            }}
+          >
+            {activeStep?.description ?? 'No step selected.'}
+          </p>
+          {activeNode?.path && (
+            <code
+              style={{
+                display: 'inline-block',
+                marginTop: 6,
+                fontFamily: '"IBM Plex Mono", monospace',
+                fontSize: 11,
+                color: '#9B9C92',
+              }}
+            >
+              {activeNode.path}
+            </code>
+          )}
+        </div>
 
-                {/* Node id path (monospace) */}
-                <div style={{ marginBottom: 6 }}>
-                  <code
-                    style={{
-                      fontSize: 11,
-                      fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-                      color: '#6C6E63',
-                      background: '#E5E7E0',
-                      borderRadius: 4,
-                      padding: '1px 5px',
-                    }}
-                  >
-                    {step.node}
-                  </code>
-                </div>
-
-                {/* Step description */}
-                <p
-                  style={{
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    color: isActive ? '#4D4F46' : '#6C6E63',
-                    margin: 0,
-                    fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                    transition: 'color 200ms ease-out',
-                  }}
-                >
-                  {step.description}
-                </p>
-
-                {/* Node summary if available */}
-                {isActive && node?.summary && (
-                  <p
-                    style={{
-                      fontSize: 12,
-                      lineHeight: 1.43,
-                      color: '#9B9C92',
-                      margin: '6px 0 0',
-                      fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                      borderTop: '1px solid #DCDFD2',
-                      paddingTop: 6,
-                      animation: 'flowFadeIn 200ms ease-out both',
-                    }}
-                  >
-                    {node.summary}
-                  </p>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-
-      {/* Inline keyframes — scoped to this component */}
-      <style>{`
-        @keyframes flowStepActivate {
-          from { opacity: 0.6; transform: translateX(0); }
-          to   { opacity: 1;   transform: translateX(2px); }
-        }
-        @keyframes flowFadeIn {
-          from { opacity: 0; transform: translateY(-4px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes flowPulse {
-          0%, 100% { opacity: 1;   transform: scale(1); }
-          50%       { opacity: 0.5; transform: scale(0.75); }
-        }
-      `}</style>
+        {/* Sequence rail */}
+        <div
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid #BFC1B7',
+            borderRadius: 6,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '8px 14px',
+              borderBottom: '1px solid #DCDFD2',
+              fontFamily: '"Nunito", system-ui, sans-serif',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: '#9B9C92',
+            }}
+          >
+            Sequence — modules over time
+          </div>
+          <div style={{ padding: '4px 8px 8px' }}>
+            <SequenceRail
+              flow={flow}
+              participants={participants}
+              activeStep={activeIndex}
+              onSelectStep={goToStep}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

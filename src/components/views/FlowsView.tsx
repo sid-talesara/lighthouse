@@ -16,13 +16,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ViewProps } from './viewContract';
 import { FlowPlayer } from './FlowPlayer';
-import type { LighthouseNode } from '../../types/lighthouse';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function buildNodeMap(nodes: LighthouseNode[]): Map<string, LighthouseNode> {
-  return new Map(nodes.map((n) => [n.id, n]));
-}
 
 // ─── Empty State ─────────────────────────────────────────────────────────────
 
@@ -85,9 +78,6 @@ export function FlowsView({
   onHighlightNodes,
 }: ViewProps) {
   const [activeFlowIndex, setActiveFlowIndex] = useState(0);
-
-  // Stable node lookup map
-  const nodeMap = useMemo(() => buildNodeMap(data.nodes), [data.nodes]);
 
   // Track the most recent step change to avoid feedback loops
   const lastEmittedNodeRef = useRef<string | null>(null);
@@ -173,7 +163,7 @@ export function FlowsView({
               fontFamily: '"Nunito", system-ui, sans-serif',
             }}
           >
-            trace the system, step by step
+            watch execution move through the system
           </span>
         </div>
 
@@ -278,11 +268,11 @@ export function FlowsView({
               </span>
             </div>
 
-            {/* The animated player */}
+            {/* The animated trace + sequence player */}
             <FlowPlayer
               key={`flow-${activeFlowIndex}`}
               flow={currentFlow}
-              nodeMap={nodeMap}
+              data={data}
               onStepChange={handleStepChange}
               forcedStepIndex={forcedStepIndex}
             />
@@ -300,7 +290,7 @@ export function FlowsView({
             margin: 0,
           }}
         >
-          ← prev   play →   click any step to jump   nodes highlight on map ↗
+          ▶ play to watch the pulse travel   click a node or sequence row to jump   syncs the map ↗
         </p>
       </div>
     </div>
