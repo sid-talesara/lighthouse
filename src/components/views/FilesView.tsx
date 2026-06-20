@@ -1,67 +1,69 @@
 /**
- * FilesView — Wave A placeholder.
+ * FilesView — Wave B real implementation.
  *
- * Wave B owns this view: build the real file/module explorer here (e.g. a
- * tree or sortable table of nodes with paths, kinds, "changed recently"
- * flags). Keep the ViewProps contract intact — use onSelectNode to drive
- * selection and onHighlightNodes to emphasise sets.
- *
- * For now it renders a styled preview list of file/module nodes so the tab
- * is useful and demonstrates the selection seam.
+ * Renders a collapsible file/folder tree derived from all node `path` and
+ * `key_files` values in data. Clicking a file that maps to a node calls
+ * onSelectNode + onHighlightNodes for cross-view linking. Styling follows
+ * the PostHog-inspired design spec (cream canvas, white card, olive borders,
+ * yellow accent).
  */
 
 import type { ViewProps } from './viewContract';
-import { ViewPlaceholder } from './ViewPlaceholder';
+import { FileTree } from './FileTree';
 
-export function FilesView({ data, selectedNodeId, onSelectNode }: ViewProps) {
-  const items = data.nodes;
+export function FilesView({
+  data,
+  selectedNodeId,
+  highlightedNodeIds,
+  onSelectNode,
+  onHighlightNodes,
+}: ViewProps) {
+  // Determine what's currently selected for the header blurb
+  const selectedNode = selectedNodeId
+    ? data.nodes.find((n) => n.id === selectedNodeId) ?? null
+    : null;
 
   return (
-    <ViewPlaceholder
-      emoji="📁"
-      title="Files"
-      blurb="Every module and file in the repo, browsable. Click a row to read it on the map. (Wave B will turn this into a full file tree.)"
-    >
-      <div className="rounded-ph border border-ph-border bg-ph-surface">
-        <div className="border-b border-ph-border-soft px-5 py-3 font-sans text-label uppercase tracking-wider text-ph-ash">
-          {items.length} nodes
+    <div className="flex h-full flex-col bg-ph-canvas">
+      {/* Header card */}
+      <div className="border-b border-ph-border bg-ph-surface px-6 py-4 flex items-center gap-3 shrink-0">
+        <span className="text-xl" aria-hidden>
+          📁
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-display text-heading-md text-ph-ink leading-tight">
+            Files
+          </h2>
+          <p className="font-body text-body-sm text-ph-mute mt-0.5">
+            {selectedNode
+              ? `Selected: ${selectedNode.label} — ${selectedNode.path}`
+              : 'Click any file to select it on the map.'}
+          </p>
         </div>
-        <ul>
-          {items.map((n) => {
-            const active = selectedNodeId === n.id;
-            return (
-              <li key={n.id}>
-                <button
-                  onClick={() => onSelectNode(active ? null : n.id)}
-                  className={[
-                    'flex w-full items-center gap-3 border-b border-ph-border-soft px-5 py-3 text-left transition-colors last:border-b-0',
-                    active
-                      ? 'border-l-2 border-l-ph-yellow bg-ph-canvas'
-                      : 'border-l-2 border-l-transparent hover:bg-ph-canvas',
-                  ].join(' ')}
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-sans text-body-sm font-semibold text-ph-ink">
-                      {n.label}
-                    </span>
-                    <span className="block truncate font-mono text-code text-ph-mute">
-                      {n.path}
-                    </span>
-                  </span>
-                  <span className="shrink-0 rounded-ph-pill bg-ph-surface-soft px-2.5 py-0.5 font-sans text-label uppercase tracking-wider text-ph-body">
-                    {n.kind}
-                  </span>
-                  {n.changed_recently && (
-                    <span className="shrink-0 rounded-ph-pill bg-ph-green-soft px-2.5 py-0.5 font-sans text-label uppercase tracking-wider text-ph-green">
-                      changed
-                    </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        {selectedNode && (
+          <button
+            type="button"
+            onClick={() => {
+              onSelectNode(null);
+              onHighlightNodes(new Set());
+            }}
+            className="shrink-0 rounded-ph border border-ph-border bg-ph-surface-soft px-3 py-1.5 font-sans text-[12px] text-ph-body hover:bg-ph-border-dashed transition-colors"
+          >
+            Clear
+          </button>
+        )}
       </div>
-    </ViewPlaceholder>
+
+      {/* Tree panel — fills remaining height */}
+      <div className="flex-1 overflow-hidden bg-ph-surface rounded-none">
+        <FileTree
+          data={data}
+          selectedNodeId={selectedNodeId}
+          highlightedNodeIds={highlightedNodeIds}
+          onSelectNode={onSelectNode}
+          onHighlightNodes={onHighlightNodes}
+        />
+      </div>
+    </div>
   );
 }
