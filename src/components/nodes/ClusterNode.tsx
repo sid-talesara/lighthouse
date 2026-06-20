@@ -25,14 +25,14 @@ function ClusterNodeImpl({ data, selected }: NodeProps) {
     return (
       <div
         className={[
-          'relative h-full w-full overflow-hidden rounded-ph border bg-ph-canvas/70',
+          'relative h-full w-full overflow-hidden rounded-ph border-[1.5px] bg-ph-canvas/70 shadow-ph-node',
           'transition-[opacity,border-color] duration-300',
           d.dimmed ? 'opacity-45' : 'opacity-100',
           active
-            ? 'border-ph-yellow'
+            ? 'border-ph-yellow shadow-ph-node-selected'
             : d.highlighted
               ? 'border-ph-blue'
-              : 'border-ph-border',
+              : 'border-ph-border-strong',
         ].join(' ')}
       >
         <span className={`absolute inset-y-0 left-0 w-1 ${STRIPE}`} />
@@ -56,14 +56,14 @@ function ClusterNodeImpl({ data, selected }: NodeProps) {
   return (
     <div
       className={[
-        'group relative w-[248px] cursor-pointer overflow-hidden rounded-ph border bg-ph-surface pl-6 pr-5 py-4',
-        'transition-[opacity,border-color,transform] duration-150 ease-out hover:-translate-y-0.5',
+        'group relative w-[248px] cursor-pointer overflow-hidden rounded-ph border-[1.5px] bg-ph-surface pl-6 pr-5 py-4 shadow-ph-node',
+        'transition-[opacity,border-color,transform,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-ph-node-hover',
         active
-          ? 'border-ph-yellow shadow-ph-focus-yellow'
+          ? 'border-ph-yellow shadow-ph-node-selected'
           : d.highlighted
             ? 'border-ph-blue'
-            : 'border-ph-border hover:border-ph-ash',
-        d.dimmed ? 'opacity-40' : 'opacity-100',
+            : 'border-ph-border-strong hover:border-ph-ash',
+        d.dimmed ? 'opacity-45' : 'opacity-100',
       ].join(' ')}
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${STRIPE}`} />
@@ -88,7 +88,7 @@ function ClusterNodeImpl({ data, selected }: NodeProps) {
         {d.label}
       </div>
 
-      <p className="mt-1.5 text-body-sm leading-snug text-ph-body line-clamp-2">
+      <p className="mt-1.5 font-body text-body-sm leading-snug text-ph-body line-clamp-2">
         {d.summary}
       </p>
 

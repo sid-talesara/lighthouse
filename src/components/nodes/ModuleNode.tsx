@@ -20,14 +20,14 @@ function ModuleNodeImpl({ data, selected }: NodeProps) {
     return (
       <div
         className={[
-          'relative h-full w-full overflow-hidden rounded-ph border bg-ph-surface-soft/60',
+          'relative h-full w-full overflow-hidden rounded-ph border-[1.5px] bg-ph-surface-soft/60 shadow-ph-node',
           'transition-[opacity,border-color] duration-300',
           d.dimmed ? 'opacity-50' : 'opacity-100',
           active
-            ? 'border-ph-yellow'
+            ? 'border-ph-yellow shadow-ph-node-selected'
             : d.highlighted
               ? 'border-ph-blue'
-              : 'border-ph-border',
+              : 'border-ph-border-strong',
         ].join(' ')}
       >
         <span className={`absolute inset-y-0 left-0 w-1 ${STRIPE}`} />
@@ -57,14 +57,14 @@ function ModuleNodeImpl({ data, selected }: NodeProps) {
   return (
     <div
       className={[
-        'group relative w-[230px] cursor-pointer overflow-hidden rounded-ph border bg-ph-surface pl-5 pr-4 py-3',
-        'transition-[opacity,border-color,transform] duration-150 ease-out hover:-translate-y-0.5',
+        'group relative w-[230px] cursor-pointer overflow-hidden rounded-ph border-[1.5px] bg-ph-surface pl-5 pr-4 py-3 shadow-ph-node',
+        'transition-[opacity,border-color,transform,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-ph-node-hover',
         active
-          ? 'border-ph-yellow shadow-ph-focus-yellow'
+          ? 'border-ph-yellow shadow-ph-node-selected'
           : d.highlighted
             ? 'border-ph-blue'
-            : 'border-ph-border hover:border-ph-ash',
-        d.dimmed ? 'opacity-40' : 'opacity-100',
+            : 'border-ph-border-strong hover:border-ph-ash',
+        d.dimmed ? 'opacity-45' : 'opacity-100',
       ].join(' ')}
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${STRIPE}`} />
@@ -87,7 +87,7 @@ function ModuleNodeImpl({ data, selected }: NodeProps) {
 
       <p
         className={[
-          'mt-1 text-[11.5px] leading-snug text-ph-body',
+          'mt-1 font-body text-[11.5px] leading-snug text-ph-body',
           active ? 'line-clamp-3' : 'line-clamp-2 opacity-80 group-hover:opacity-100',
         ].join(' ')}
       >

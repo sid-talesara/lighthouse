@@ -113,32 +113,37 @@ body {
   animation: dashdraw 0.6s linear infinite;
 }
 
-/* Controls - PostHog flat style */
+/* Controls - clearly visible instrument panel (stronger border + soft lift so
+   they read against the canvas; nodes are now visible so controls must match). */
 .react-flow__controls {
-  box-shadow: none;
-  border: 1px solid #bfc1b7;
-  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(20, 20, 20, 0.12);
+  border: 1.5px solid #9b9c92;
+  border-radius: 8px;
   overflow: hidden;
 }
 .dark .react-flow__controls {
   border-color: #4b4b4b;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 .react-flow__controls-button {
   box-shadow: none;
   border-bottom: 1px solid #bfc1b7;
   background: #ffffff;
-  color: #4d4f46;
-  width: 30px;
-  height: 30px;
+  color: #23251d;
+  width: 34px;
+  height: 34px;
 }
 .react-flow__controls-button:last-child {
   border-bottom: none;
 }
 .react-flow__controls-button:hover {
   background: #e5e7e0;
+  color: #151515;
 }
 .react-flow__controls-button svg {
   fill: currentColor;
+  max-width: 16px;
+  max-height: 16px;
 }
 .dark .react-flow__controls-button {
   border-bottom-color: #4b4b4b;

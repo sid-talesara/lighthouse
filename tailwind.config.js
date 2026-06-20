@@ -21,6 +21,7 @@ export default {
           "border-soft": "#DCDFD2",
           "border-dashed": "#D0D1C9",
           "border-dark": "#4B4B4B",
+          "border-strong": "#9B9C92", // darker olive for visible card borders
 
           // Text
           ink: "#151515", // headlines
@@ -117,6 +118,13 @@ export default {
         "ph-focus-yellow": "0 0 0 3px rgba(247,165,1,0.2)",
         "ph-edge-glow": "drop-shadow(0 0 4px rgba(44,132,224,0.5))",
         "ph-float": "0 4px 16px rgba(21,21,21,0.12)",
+        // Node lift — a tasteful soft shadow so white cards read on the cream
+        // canvas at low zoom (pure-flat was invisible).
+        "ph-node": "0 1px 3px rgba(20,20,20,0.10), 0 1px 2px rgba(20,20,20,0.06)",
+        "ph-node-hover": "0 4px 10px rgba(20,20,20,0.12), 0 2px 4px rgba(20,20,20,0.08)",
+        // Selected ring (yellow) layered over the lift shadow.
+        "ph-node-selected":
+          "0 0 0 3px rgba(247,165,1,0.25), 0 4px 10px rgba(20,20,20,0.12)",
       },
     },
   },

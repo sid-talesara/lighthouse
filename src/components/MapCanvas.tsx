@@ -62,7 +62,7 @@ function MapCanvasInner({
   const [edges, setEdges] = useState<Edge[]>([]);
   // Which node the cursor is over — drives edge emphasis/dimming.
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const { fitView, setCenter, getNode } = useReactFlow();
+  const { fitView, setCenter, getNode, getZoom } = useReactFlow();
   const layoutToken = useRef(0);
   const didInitialFit = useRef(false);
 
@@ -130,13 +130,16 @@ function MapCanvasInner({
     // Skip the very first run — initial fit is handled by onInit below.
     if (!didInitialFit.current) return;
     const t = setTimeout(() => {
-      void fitView({ padding: 0.18, duration: 520, maxZoom: 1.3, ease: easeOutCubic });
+      void fitView({ padding: 0.2, duration: 520, maxZoom: 1.4, ease: easeOutCubic });
     }, 80);
     return () => clearTimeout(t);
   }, [structureKey, fitView]);
 
-  // On selection change, smoothly pan/zoom to center the selected node. Runs
-  // after the re-layout settles so positions are fresh.
+  // On selection change, gently pan to bring the selected node into view while
+  // KEEPING context — we don't zoom hard (that flings the rest of the map off
+  // screen). We pan to center the node but clamp the zoom so neighbours stay
+  // visible: never zoom past 1.15, and never zoom *in* from the current level
+  // if the user is already comfortably reading. This preserves the map feel.
   useEffect(() => {
     if (!selectedNodeId) return;
     const t = setTimeout(() => {
@@ -144,13 +147,17 @@ function MapCanvasInner({
       if (!node) return;
       const w = (node.measured?.width ?? (node.width as number | undefined) ?? 220);
       const h = (node.measured?.height ?? (node.height as number | undefined) ?? 90);
+      // Keep the user's current zoom (context-preserving), only nudging up to a
+      // readable floor and capping the ceiling so we never over-zoom.
+      const current = getZoom();
+      const zoom = Math.min(1.15, Math.max(current, 0.75));
       void setCenter(node.position.x + w / 2, node.position.y + h / 2, {
-        zoom: 1.4,
+        zoom,
         duration: 500,
       });
     }, 120);
     return () => clearTimeout(t);
-  }, [selectedNodeId, nodes, getNode, setCenter]);
+  }, [selectedNodeId, nodes, getNode, getZoom, setCenter]);
 
   const toggleCluster = useCallback((id: string) => {
     setExpandedClusters((prev) => {
@@ -222,8 +229,10 @@ function MapCanvasInner({
       onPaneClick={onPaneClick}
       onInit={() => {
         // Frame the cluster graph nicely on first load with a gentle fly-in.
+        // Higher maxZoom so cards are comfortably readable on landing (the old
+        // 1.1 cap left them tiny on wide canvases).
         window.setTimeout(() => {
-          void fitView({ padding: 0.14, duration: 600, maxZoom: 1.1, ease: easeInOutQuad });
+          void fitView({ padding: 0.18, duration: 600, maxZoom: 1.5, ease: easeInOutQuad });
           didInitialFit.current = true;
         }, 80);
       }}
@@ -231,15 +240,20 @@ function MapCanvasInner({
       nodesConnectable={false}
       elementsSelectable
       fitView
-      fitViewOptions={{ padding: 0.14, maxZoom: 1.1 }}
-      defaultViewport={{ x: 0, y: 0, zoom: 0.7 }}
-      minZoom={0.15}
+      fitViewOptions={{ padding: 0.18, maxZoom: 1.5 }}
+      defaultViewport={{ x: 0, y: 0, zoom: 0.9 }}
+      minZoom={0.3}
       maxZoom={2.5}
       proOptions={{ hideAttribution: false }}
       className="lh-canvas"
     >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#BFC1B7" />
-      <Controls showInteractive={false} position="bottom-right" />
+      <Background variant={BackgroundVariant.Dots} gap={20} size={2.25} color="#B4B6AC" />
+      <Controls
+        showInteractive={false}
+        showZoom
+        showFitView
+        position="bottom-left"
+      />
       <MiniMap
         pannable
         zoomable

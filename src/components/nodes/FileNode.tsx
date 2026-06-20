@@ -18,14 +18,14 @@ function FileNodeImpl({ data, selected }: NodeProps) {
   return (
     <div
       className={[
-        'group relative w-[210px] cursor-pointer overflow-hidden rounded-ph-sm border bg-ph-surface pl-4 pr-3 py-2',
-        'transition-[opacity,border-color,transform] duration-150 ease-out hover:-translate-y-0.5',
+        'group relative w-[210px] cursor-pointer overflow-hidden rounded-ph-sm border-[1.5px] bg-ph-surface pl-4 pr-3 py-2 shadow-ph-node',
+        'transition-[opacity,border-color,transform,box-shadow] duration-150 ease-out hover:-translate-y-0.5 hover:shadow-ph-node-hover',
         active
-          ? 'border-ph-yellow shadow-ph-focus-yellow'
+          ? 'border-ph-yellow shadow-ph-node-selected'
           : d.highlighted
             ? 'border-ph-blue'
-            : 'border-ph-border hover:border-ph-ash',
-        d.dimmed ? 'opacity-40' : 'opacity-100',
+            : 'border-ph-border-strong hover:border-ph-ash',
+        d.dimmed ? 'opacity-45' : 'opacity-100',
       ].join(' ')}
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${STRIPE}`} />
@@ -47,7 +47,7 @@ function FileNodeImpl({ data, selected }: NodeProps) {
       {d.summary && (
         <p
           className={[
-            'mt-0.5 text-[10.5px] leading-snug text-ph-mute',
+            'mt-0.5 font-body text-[10.5px] leading-snug text-ph-mute',
             active ? 'line-clamp-2' : 'line-clamp-1 opacity-0 group-hover:opacity-100',
             'transition-opacity duration-200',
           ].join(' ')}
