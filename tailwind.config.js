@@ -86,10 +86,16 @@ export default {
         code: ["0.8125rem", { lineHeight: "1.43", fontWeight: "400" }],
       },
       keyframes: {
-        nodeEntrance: {
-          from: { opacity: "0", transform: "scale(0.92) translateY(4px)" },
-          to: { opacity: "1", transform: "scale(1) translateY(0)" },
-        },
+        // NOTE: the node entrance animation lives in src/index.css as an
+        // opacity-ONLY keyframe. It must never animate `transform`: React Flow
+        // owns the `.react-flow__node` element's inline `transform: translate()`
+        // for positioning, and a transform-animating keyframe overrides it,
+        // collapsing every node to the origin (the "all nodes stacked top-left"
+        // bug). Do NOT re-add a `nodeEntrance`/`node-entrance` keyframe here —
+        // a same-named keyframe would collide with index.css and (depending on
+        // CSS source order) win, resurrecting the bug. Inner-card hover lifts
+        // (hover:-translate-y-0.5) are fine: they target the card child, not
+        // the positioned `.react-flow__node` element.
         dashdraw: {
           to: { strokeDashoffset: "-9" },
         },
@@ -107,7 +113,8 @@ export default {
         },
       },
       animation: {
-        "node-entrance": "nodeEntrance 200ms ease-out both",
+        // No "node-entrance" utility — see the keyframes note above. The node
+        // entrance is defined directly on `.react-flow__node` in index.css.
         "panel-in": "panelIn 200ms ease-out both",
         "fade-in": "fadeIn 150ms ease-out both",
         "btn-press": "btnPress 80ms ease-out",
