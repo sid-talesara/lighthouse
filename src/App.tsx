@@ -5,10 +5,12 @@ import type { LighthouseData } from './types/lighthouse';
 import { MapCanvas } from './components/MapCanvas';
 import { ReadingPanel } from './components/ReadingPanel';
 import { AskBox } from './components/AskBox';
+import { GeneratePanel } from './components/GeneratePanel';
 
 export default function App() {
   const [data, setData] = useState<LighthouseData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // ── Phase 2/3 seams ────────────────────────────────────────────────
   // selectedNodeId: the node the user clicked (Phase 2 reading panel reads
@@ -26,6 +28,7 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
+    setError(null);
     loadData()
       .then((d) => {
         if (alive) setData(d);
@@ -36,6 +39,10 @@ export default function App() {
     return () => {
       alive = false;
     };
+  }, [reloadKey]);
+
+  const handleGenerateDone = useCallback(() => {
+    setReloadKey((key) => key + 1);
   }, []);
 
   const handleSelect = useCallback((id: string | null) => {
@@ -128,11 +135,12 @@ export default function App() {
           <span className="truncate font-mono text-[13px] text-slate2-200">{data.repo.name}</span>
           <span className="truncate text-[11px] text-slate2-400">{data.repo.description}</span>
         </div>
-        <div className="ml-auto flex items-center gap-4 font-mono text-[11px] text-slate2-400">
+        <div className="ml-auto flex items-center gap-3 font-mono text-[11px] text-slate2-400">
           <Stat n={data.clusters.length} label="clusters" />
           <Stat n={stats.modules} label="modules" />
           <Stat n={stats.files} label="files" />
           {stats.changed > 0 && <Stat n={stats.changed} label="changed" accent />}
+          <GeneratePanel onDone={handleGenerateDone} />
         </div>
       </header>
 
