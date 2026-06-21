@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { JSX } from 'react';
+import { useUrlState, parseUrl } from './hooks/useUrlState';
 
 import { loadData } from './lib/loadData';
 import { DEFAULT_GENERATE_MODEL, type GenerateModel } from './lib/generateOptions';
@@ -68,36 +69,51 @@ export default function App() {
   const [queryModel, setQueryModel] = useState<GenerateModel>(readStoredModel);
 
   // ── Landing gate: show Onboarding until the user explicitly enters ──
-  const [entered, setEntered] = useState<boolean>(() => {
+  // Init from URL first (?v=1), fall back to localStorage.
+  const [entered, setEnteredRaw] = useState<boolean>(() => {
     try {
+      const urlSnap = parseUrl(window.location.search);
+      if (urlSnap.entered) return true;
       return localStorage.getItem(LH_ENTERED_KEY) === '1';
     } catch {
       return false;
     }
   });
-  const handleEnter = useCallback(() => {
-    setEntered(true);
+
+  // Sync entered to localStorage whenever it changes.
+  const setEntered = useCallback((v: boolean) => {
+    setEnteredRaw(v);
     try {
-      localStorage.setItem(LH_ENTERED_KEY, '1');
+      if (v) {
+        localStorage.setItem(LH_ENTERED_KEY, '1');
+      } else {
+        localStorage.removeItem(LH_ENTERED_KEY);
+      }
     } catch {
       /* ignore */
     }
   }, []);
+
+  const handleEnter = useCallback(() => {
+    setEntered(true);
+  }, [setEntered]);
   // Clicking the Lighthouse logo in the top-bar returns to landing.
   const handleReturnToLanding = useCallback(() => {
     setEntered(false);
-    try {
-      localStorage.removeItem(LH_ENTERED_KEY);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  }, [setEntered]);
 
   // Tracks whether we should auto-open the GeneratePanel after entering.
   const [pendingGenerate, setPendingGenerate] = useState(false);
 
   // ── View switcher ──────────────────────────────────────────────────
-  const [activeView, setActiveView] = useState<ViewId>('architecture');
+  const [activeView, setActiveView] = useState<ViewId>(() => {
+    try {
+      const snap = parseUrl(window.location.search);
+      return snap.tab ?? 'architecture';
+    } catch {
+      return 'architecture';
+    }
+  });
 
   // ── Module wiki drawer — history-stack navigation ───────────────────
   const wikiStack = useWikiStack();
@@ -128,12 +144,39 @@ export default function App() {
     }
   });
 
+  // Open wiki on mount if URL has wiki=1&node=<id>
+  // We use a ref to guard so StrictMode double-invoke is harmless.
+  const wikiInitDoneRef = useRef(false);
+  useEffect(() => {
+    if (wikiInitDoneRef.current) return;
+    wikiInitDoneRef.current = true;
+    try {
+      const snap = parseUrl(window.location.search);
+      if (snap.wikiOpen && snap.nodeId) {
+        wikiStack.open(snap.nodeId);
+        // mark onboarded so first-load hints don't appear
+        try { localStorage.setItem(WIKI_ONBOARD_KEY, 'true'); } catch { /* */ }
+        setWikiOnboarded(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run once on mount
+
   // ── Cross-view state seams (preserved from prior phases) ────────────
   // selectedNodeId: the node the user clicked. The reading panel reads this
   //   to highlight/scroll the related section; views reflect it.
   // highlightedNodeIds: the set views light up. Driven by panel section
   //   clicks AND by "ask the map" LLM answers.
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(() => {
+    try {
+      const snap = parseUrl(window.location.search);
+      return snap.wikiOpen ? null : (snap.nodeId ?? null);
+    } catch {
+      return null;
+    }
+  });
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
   // activeSectionId: active section in the reading panel (set by panel click).
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
@@ -243,6 +286,31 @@ export default function App() {
     },
     [wikiStack],
   );
+
+  // ── Deep-link URL sync ──────────────────────────────────────────────
+  const { copyLink: copyLinkFn } = useUrlState({
+    entered,
+    activeView,
+    selectedNodeId,
+    wikiCurrentId: wikiStack.currentId,
+    wikiOpen: wikiStack.currentId !== null,
+    setEntered,
+    setActiveView,
+    setSelectedNodeId,
+    openWiki: (id) => {
+      wikiStack.open(id);
+      markWikiOnboarded();
+    },
+    closeWiki: wikiStack.close,
+  });
+
+  // "Copy link" button state — brief flash of "Copied!" feedback
+  const [copied, setCopied] = useState(false);
+  const handleCopyLink = useCallback(() => {
+    copyLinkFn();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }, [copyLinkFn]);
 
   const stats = useMemo(() => {
     if (!data) return null;
@@ -383,6 +451,29 @@ export default function App() {
           <Stat n={data.clusters.length} label="clusters" />
           <Stat n={stats.modules} label="modules" />
           <Stat n={stats.files} label={stats.fileLabel} />
+          {/* Copy-link affordance */}
+          <button
+            onClick={handleCopyLink}
+            title="Copy shareable link to current view"
+            className="inline-flex h-7 items-center gap-1.5 rounded-ph-sm border border-ph-border bg-ph-surface px-2.5 font-sans text-xs text-ph-mute transition-colors duration-75 hover:border-ph-border-dark hover:text-ph-ink"
+          >
+            {copied ? (
+              <>
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 text-ph-green" aria-hidden>
+                  <path d="M2 7l3.5 3.5L12 3" />
+                </svg>
+                <span className="text-ph-green">Copied!</span>
+              </>
+            ) : (
+              <>
+                <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3" aria-hidden>
+                  <path d="M5 4H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2" />
+                  <rect x="5" y="2" width="7" height="7" rx="1" />
+                </svg>
+                <span>Copy link</span>
+              </>
+            )}
+          </button>
           <GeneratePanel
             onDone={handleGenerateDone}
             initialRepoPath={queryRepoPath}
