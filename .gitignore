@@ -21,6 +21,10 @@ out/
 outputs/
 .playwright-cli/
 
+# Screen recordings / large media
+*.mp4
+*.mov
+
 # Logs
 logs/
 *.log

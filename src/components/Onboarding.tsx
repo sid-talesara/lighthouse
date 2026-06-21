@@ -155,7 +155,7 @@ export function Onboarding({
 
   return (
     <div
-      className="relative flex min-h-screen flex-col items-center overflow-hidden px-4 py-12"
+      className="relative flex h-screen flex-col items-center overflow-y-auto px-4 py-12"
       style={{
         fontFamily: '"Nunito", system-ui, sans-serif',
         backgroundColor: '#EEEFE9',
