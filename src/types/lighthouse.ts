@@ -3,6 +3,8 @@
 export interface Repo {
   name: string;
   description: string;
+  /** Absolute local path for the generated repo, present only for local generated data. */
+  path?: string;
 }
 
 export interface IndexedFile {

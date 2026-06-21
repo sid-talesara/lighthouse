@@ -28,6 +28,8 @@ function validate(raw: unknown, source: string): LighthouseData {
   const repo = d['repo'] as Record<string, unknown>;
   if (!isString(repo['name'])) throw new Error(`${source}: repo.name must be a string`);
   if (!isString(repo['description'])) throw new Error(`${source}: repo.description must be a string`);
+  if (repo['path'] !== undefined && !isString(repo['path']))
+    throw new Error(`${source}: repo.path must be a string when present`);
 
   // Optional full deterministic file inventory. Older seed data may not have it.
   if (d['files'] !== undefined) {

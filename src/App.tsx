@@ -153,6 +153,18 @@ export default function App() {
     };
   }, [reloadKey]);
 
+  useEffect(() => {
+    const generatedRepoPath = data?.repo.path?.trim();
+    if (!generatedRepoPath || queryRepoPath.trim()) return;
+
+    setQueryRepoPath(generatedRepoPath);
+    try {
+      localStorage.setItem(QUERY_REPO_PATH_KEY, generatedRepoPath);
+    } catch {
+      // Ignore storage failures; the in-memory value still enables local Codex.
+    }
+  }, [data?.repo.path, queryRepoPath]);
+
   const handleGenerateDone = useCallback(() => {
     setReloadKey((key) => key + 1);
   }, []);
