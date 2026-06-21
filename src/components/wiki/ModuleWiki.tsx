@@ -22,6 +22,7 @@ import {
 import type { WikiStack } from '../../hooks/useWikiStack';
 import { NeighborDiagram } from './NeighborDiagram';
 import { WikiToc, type TocItem } from './WikiToc';
+import { WikiSourceFiles } from './WikiSourceFiles';
 import {
   IconAlert,
   IconArrowRight,
@@ -205,6 +206,11 @@ function WikiBody({
           <SummarySection payload={payload} />
           <ConnectionsSection payload={payload} onNavigate={onNavigate} />
           <KeyFilesSection payload={payload} />
+          <WikiSourceFiles
+            kind={payload.node.kind}
+            files={payload.node.key_files}
+            clusterGroups={payload.clusterKeyFiles}
+          />
           <FunctionsSection payload={payload} />
           <DbTablesSection payload={payload} />
           <FlowsSection payload={payload} onNavigate={onNavigate} nodeLabel={nodeLabel} />
@@ -840,6 +846,13 @@ function buildToc(payload: WikiPayload): TocItem[] {
       ? clusterKeyFiles.length > 0
       : node.key_files.filter((f) => f.trim() !== '').length > 0;
   if (hasKeyFiles) items.push({ anchor: 'key-files', label: 'Key files' });
+
+  // Source files section — same data as key files but always shown when files exist.
+  const hasSourceFiles =
+    node.kind === 'cluster'
+      ? clusterKeyFiles.some((g) => g.files.length > 0)
+      : node.key_files.filter((f) => f.trim() !== '').length > 0;
+  if (hasSourceFiles) items.push({ anchor: 'source-files', label: 'Source files' });
 
   const hasFns = node.kind === 'cluster' ? rolledUpFunctionCount > 0 : functions.length > 0;
   if (hasFns) items.push({ anchor: 'functions', label: 'Functions' });
