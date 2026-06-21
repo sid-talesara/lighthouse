@@ -12,7 +12,7 @@
  * state when there are none.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ViewProps } from './viewContract';
 import type { Service, ServiceLink, LighthouseNode } from '../../types/lighthouse';
 import { CodeViewer } from '../../components/CodeViewer';
@@ -295,14 +295,46 @@ function ServiceDetail({
   const outbound = links.filter((l) => l.from === service.id);
   const inbound = links.filter((l) => l.to === service.id);
 
-  // Clicking a module: highlight all of this service's modules + select the one.
-  const onModuleClick = (id: string) => {
-    onHighlightNodes(new Set(moduleIds));
-    onSelectNode(id);
-    onOpenWiki?.(id);
-  };
+  // Brief visual feedback state for the "Highlight on map" button.
+  const [highlightFired, setHighlightFired] = useState(false);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const highlightAll = () => onHighlightNodes(new Set(moduleIds));
+  // Reset feedback when service changes.
+  useEffect(() => {
+    setHighlightFired(false);
+    return () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    };
+  }, [service.id]);
+
+  // Clicking a module: highlight all of this service's modules + select the one.
+  const onModuleClick = useCallback(
+    (id: string) => {
+      onHighlightNodes(new Set(moduleIds));
+      onSelectNode(id);
+      onOpenWiki?.(id);
+    },
+    [moduleIds, onHighlightNodes, onSelectNode, onOpenWiki],
+  );
+
+  const highlightAll = useCallback(() => {
+    onHighlightNodes(new Set(moduleIds));
+    setHighlightFired(true);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightFired(false), 1800);
+  }, [moduleIds, onHighlightNodes]);
+
+  // Clicking a peer service: select it + highlight its modules too.
+  const onSelectPeer = useCallback(
+    (peerId: string) => {
+      const peer = services.find((s) => s.id === peerId);
+      if (peer?.module_ids?.length) {
+        onHighlightNodes(new Set(peer.module_ids));
+      }
+      onSelectService(peerId);
+    },
+    [services, onHighlightNodes, onSelectService],
+  );
 
   return (
     <aside
@@ -344,8 +376,8 @@ function ServiceDetail({
       </div>
 
       {/* Connections */}
-      {(outbound.length > 0 || inbound.length > 0) && (
-        <Section title="Connections">
+      {(outbound.length > 0 || inbound.length > 0) ? (
+        <Section title={`Connections (${outbound.length + inbound.length})`}>
           {outbound.map((l, i) => (
             <ConnRow
               key={`out-${i}`}
@@ -353,7 +385,7 @@ function ServiceDetail({
               protocol={l.protocol}
               peerName={serviceName.get(l.to) ?? l.to}
               summary={l.summary}
-              onClick={() => onSelectService(l.to)}
+              onClick={() => onSelectPeer(l.to)}
             />
           ))}
           {inbound.map((l, i) => (
@@ -363,9 +395,15 @@ function ServiceDetail({
               protocol={l.protocol}
               peerName={serviceName.get(l.from) ?? l.from}
               summary={l.summary}
-              onClick={() => onSelectService(l.from)}
+              onClick={() => onSelectPeer(l.from)}
             />
           ))}
+        </Section>
+      ) : (
+        <Section title="Connections (0)">
+          <p className="text-ph-ash" style={{ fontSize: '0.8125rem' }}>
+            No known connections for this service.
+          </p>
         </Section>
       )}
 
@@ -377,10 +415,14 @@ function ServiceDetail({
             <button
               type="button"
               onClick={highlightAll}
-              className="font-sans font-semibold text-ph-blue hover:underline"
+              className={`inline-flex items-center gap-1 rounded-ph px-2 py-0.5 font-sans font-semibold transition-colors ${
+                highlightFired
+                  ? 'bg-ph-blue text-white'
+                  : 'text-ph-blue hover:underline'
+              }`}
               style={{ fontSize: '0.6875rem' }}
             >
-              Highlight on map
+              {highlightFired ? '✓ Highlighted' : 'Highlight on map'}
             </button>
           ) : undefined
         }

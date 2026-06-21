@@ -37,12 +37,12 @@ interface Placed {
 }
 
 // Node geometry
-const NODE_W = 184;
-const NODE_H = 76;
-const COL_GAP = 40;
-const ROW_GAP = 110;
-const PAD_X = 32;
-const PAD_Y = 28;
+const NODE_W = 192;
+const NODE_H = 88;
+const COL_GAP = 36;
+const ROW_GAP = 90;
+const PAD_X = 40;
+const PAD_Y = 32;
 
 export function ServiceDiagram({ services, links, selectedId, onSelect }: Props) {
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -187,18 +187,30 @@ export function ServiceDiagram({ services, links, selectedId, onSelect }: Props)
           const dimmed = activeId != null && !incident && p.service.id !== activeId;
 
           return (
+            // Layer 1: positional group — carries ONLY the SVG translate.
+            // CSS @keyframes must NEVER appear on this element or they will
+            // override the translate, collapsing all nodes to the SVG origin.
+            <g key={p.service.id} transform={`translate(${p.x}, ${p.y})`}>
+            {/* Layer 2: dimming group — handles interactive opacity AFTER
+                the entrance animation has fully completed (no conflict). */}
             <g
-              key={p.service.id}
-              transform={`translate(${p.x}, ${p.y})`}
+              style={{
+                opacity: dimmed ? 0.4 : 1,
+                transition: 'opacity 150ms ease-out',
+              }}
+            >
+            {/* Layer 3: entrance-animation group — only animates opacity, never
+                transform, so Layer 1's translate is never disturbed. */}
+            <g
               onMouseEnter={() => setHoverId(p.service.id)}
               onMouseLeave={() => setHoverId(null)}
               onClick={() => onSelect(p.service.id)}
               style={{
                 cursor: 'pointer',
-                opacity: dimmed ? 0.4 : 1,
-                transition: 'opacity 150ms ease-out',
-                // Inner-group entrance — staggered. Plain SVG <g>, no RF node bug.
-                animation: `svcNodeIn 240ms ease-out both`,
+                animationName: 'svcNodeIn',
+                animationDuration: '240ms',
+                animationTimingFunction: 'ease-out',
+                animationFillMode: 'both',
                 animationDelay: `${Math.min(i * 28, 320)}ms`,
               }}
             >
@@ -233,15 +245,15 @@ export function ServiceDiagram({ services, links, selectedId, onSelect }: Props)
                 x={16}
                 y={24}
                 fontFamily="Nunito, system-ui, sans-serif"
-                fontSize={14}
+                fontSize={13}
                 fontWeight={700}
                 fill="#151515"
               >
-                {truncate(p.service.name, 20)}
+                {truncate(p.service.name, 22)}
               </text>
 
-              {/* Kind badge */}
-              <g transform={`translate(16, 34)`}>
+              {/* Kind badge + module count */}
+              <g transform="translate(16, 32)">
                 <rect
                   width={badgeWidth(ks.label)}
                   height={16}
@@ -262,27 +274,53 @@ export function ServiceDiagram({ services, links, selectedId, onSelect }: Props)
                   {ks.label.toUpperCase()}
                 </text>
               </g>
+              {(p.service.module_ids?.length ?? 0) > 0 && (
+                <text
+                  x={16 + badgeWidth(ks.label) + 8}
+                  y={43}
+                  fontFamily="system-ui, -apple-system, sans-serif"
+                  fontSize={9}
+                  fill="#9B9C92"
+                >
+                  {p.service.module_ids!.length} module{p.service.module_ids!.length !== 1 ? 's' : ''}
+                </text>
+              )}
+
+              {/* Separator line */}
+              <line
+                x1={16}
+                y1={56}
+                x2={NODE_W - 12}
+                y2={56}
+                stroke="#DCDFD2"
+                strokeWidth={1}
+              />
 
               {/* One-line summary */}
               <text
                 x={16}
-                y={66}
+                y={72}
                 fontFamily="system-ui, -apple-system, sans-serif"
-                fontSize={10.5}
+                fontSize={10}
                 fill="#6C6E63"
               >
-                {truncate(p.service.summary, 30)}
+                {truncate(p.service.summary, 32)}
               </text>
+            </g>
+            </g>
             </g>
           );
         })}
       </g>
 
-      {/* Scoped keyframes for the node entrance (kept local to this SVG). */}
+      {/* Scoped keyframes for the node entrance (kept local to this SVG).
+          IMPORTANT: Do NOT include transform in these keyframes — CSS transform
+          in @keyframes overrides the SVG transform attribute on the outer <g>,
+          which would collapse all node positions to the SVG origin. */}
       <style>{`
         @keyframes svcNodeIn {
-          from { opacity: 0; transform: translateY(6px) scale(0.97); }
-          to   { opacity: 1; transform: translateY(0) scale(1); }
+          from { opacity: 0; }
+          to   { opacity: 1; }
         }
       `}</style>
     </svg>
