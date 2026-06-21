@@ -178,8 +178,10 @@ interface FileLeafProps {
   depth: number;
   selectedNodeId: string | null;
   highlightedNodeIds: Set<string>;
+  activeFilePath: string | null;
   onSelectNode: (id: string | null) => void;
   onHighlightNodes: (ids: Set<string>) => void;
+  onOpenFile: (filePath: string, nodeId: string | null) => void;
   nodeById: Map<string, LighthouseNode>;
 }
 
@@ -188,51 +190,52 @@ function FileLeaf({
   depth,
   selectedNodeId,
   highlightedNodeIds,
+  activeFilePath,
   onSelectNode,
   onHighlightNodes,
+  onOpenFile,
   nodeById,
 }: FileLeafProps) {
   const isSelected = node.nodeId !== null && selectedNodeId === node.nodeId;
   const isHighlighted =
     node.nodeId !== null && highlightedNodeIds.has(node.nodeId);
+  const isActiveFile = node.fullPath === activeFilePath;
 
   const handleClick = useCallback(() => {
-    if (!node.nodeId) return;
-    if (isSelected) {
-      onSelectNode(null);
-      onHighlightNodes(new Set());
-    } else {
-      onSelectNode(node.nodeId);
-      onHighlightNodes(new Set([node.nodeId]));
+    // Always open the file in the editor pane
+    onOpenFile(node.fullPath, node.nodeId);
+    // Also drive node selection when there's an owning node
+    if (node.nodeId) {
+      if (isSelected) {
+        onSelectNode(null);
+        onHighlightNodes(new Set());
+      } else {
+        onSelectNode(node.nodeId);
+        onHighlightNodes(new Set([node.nodeId]));
+      }
     }
-  }, [node.nodeId, isSelected, onSelectNode, onHighlightNodes]);
+  }, [node.fullPath, node.nodeId, isSelected, onOpenFile, onSelectNode, onHighlightNodes]);
 
   const isPhantom = node.name === '__module__';
   if (isPhantom) return null;
 
   const dotColor = fileExtColor(node.name);
-  const interactive = node.nodeId !== null;
 
   return (
     <li
       style={{ paddingLeft: `${depth * 16 + 8}px` }}
       className={[
-        'group flex items-center gap-2 rounded-ph-sm px-2 py-1 transition-colors',
-        isSelected
-          ? 'bg-[#FEF3C7] border-l-2 border-ph-yellow'
+        'group flex items-center gap-2 rounded-ph-sm px-2 py-1 transition-colors cursor-pointer',
+        isActiveFile
+          ? 'bg-ph-canvas border-l-2 border-ph-yellow'
+          : isSelected
+          ? 'bg-[#FEF3C7]/60 border-l-2 border-ph-yellow/50'
           : isHighlighted
           ? 'bg-ph-blue-soft border-l-2 border-ph-blue'
-          : 'border-l-2 border-transparent',
-        interactive
-          ? 'cursor-pointer hover:bg-ph-canvas'
-          : 'cursor-default opacity-60',
+          : 'border-l-2 border-transparent hover:bg-ph-canvas',
       ].join(' ')}
-      onClick={interactive ? handleClick : undefined}
-      title={
-        interactive
-          ? `Click to select ${nodeById.get(node.nodeId!)?.label}`
-          : undefined
-      }
+      onClick={handleClick}
+      title={node.nodeId ? `Open file · node: ${nodeById.get(node.nodeId)?.label}` : `Open file: ${node.fullPath}`}
     >
       {/* File icon */}
       <span style={{ color: dotColor }} className="shrink-0 text-[11px]">
@@ -246,9 +249,9 @@ function FileLeaf({
       >
         {node.name}
       </span>
-      {interactive && (
+      {node.nodeId && (
         <span className="ml-auto shrink-0 hidden group-hover:inline-block rounded-ph-pill bg-ph-surface-soft px-1.5 py-0.5 font-sans text-[10px] text-ph-mute leading-tight">
-          {nodeById.get(node.nodeId!)?.kind ?? ''}
+          {nodeById.get(node.nodeId)?.kind ?? ''}
         </span>
       )}
     </li>
@@ -260,8 +263,10 @@ interface FolderRowProps {
   depth: number;
   selectedNodeId: string | null;
   highlightedNodeIds: Set<string>;
+  activeFilePath: string | null;
   onSelectNode: (id: string | null) => void;
   onHighlightNodes: (ids: Set<string>) => void;
+  onOpenFile: (filePath: string, nodeId: string | null) => void;
   nodeById: Map<string, LighthouseNode>;
   defaultOpen?: boolean;
 }
@@ -271,18 +276,21 @@ function FolderRow({
   depth,
   selectedNodeId,
   highlightedNodeIds,
+  activeFilePath,
   onSelectNode,
   onHighlightNodes,
+  onOpenFile,
   nodeById,
   defaultOpen = false,
 }: FolderRowProps) {
   const [open, setOpen] = useState(defaultOpen);
 
-  // Auto-open if a highlighted or selected node lives in this subtree
+  // Auto-open if a highlighted/selected node or the active file lives in this subtree
   const containsSelected = useMemo(() => {
     function check(n: TreeNode): boolean {
       if (n.type === 'file') {
         return (
+          n.fullPath === activeFilePath ||
           (n.nodeId !== null && n.nodeId === selectedNodeId) ||
           (n.nodeId !== null && highlightedNodeIds.has(n.nodeId))
         );
@@ -290,7 +298,7 @@ function FolderRow({
       return n.children.some(check);
     }
     return node.children.some(check);
-  }, [node.children, selectedNodeId, highlightedNodeIds]);
+  }, [node.children, selectedNodeId, highlightedNodeIds, activeFilePath]);
 
   const isEffectivelyOpen = open || containsSelected;
 
@@ -332,8 +340,10 @@ function FolderRow({
                 depth={depth + 1}
                 selectedNodeId={selectedNodeId}
                 highlightedNodeIds={highlightedNodeIds}
+                activeFilePath={activeFilePath}
                 onSelectNode={onSelectNode}
                 onHighlightNodes={onHighlightNodes}
+                onOpenFile={onOpenFile}
                 nodeById={nodeById}
               />
             ) : (
@@ -343,8 +353,10 @@ function FolderRow({
                 depth={depth + 1}
                 selectedNodeId={selectedNodeId}
                 highlightedNodeIds={highlightedNodeIds}
+                activeFilePath={activeFilePath}
                 onSelectNode={onSelectNode}
                 onHighlightNodes={onHighlightNodes}
+                onOpenFile={onOpenFile}
                 nodeById={nodeById}
               />
             ),
@@ -361,8 +373,12 @@ interface FileTreeProps {
   data: LighthouseData;
   selectedNodeId: string | null;
   highlightedNodeIds: Set<string>;
+  /** The file currently open in the editor pane (its row gets a highlight). */
+  activeFilePath: string | null;
   onSelectNode: (id: string | null) => void;
   onHighlightNodes: (ids: Set<string>) => void;
+  /** Called when the user clicks a file row — opens it in the editor pane. */
+  onOpenFile: (filePath: string, nodeId: string | null) => void;
   repoPath?: string;
   model?: GenerateModel;
 }
@@ -371,8 +387,10 @@ export function FileTree({
   data,
   selectedNodeId,
   highlightedNodeIds,
+  activeFilePath,
   onSelectNode,
   onHighlightNodes,
+  onOpenFile,
   repoPath,
   model,
 }: FileTreeProps) {
@@ -549,8 +567,10 @@ export function FileTree({
                   depth={0}
                   selectedNodeId={selectedNodeId}
                   highlightedNodeIds={highlightedNodeIds}
+                  activeFilePath={activeFilePath}
                   onSelectNode={onSelectNode}
                   onHighlightNodes={onHighlightNodes}
+                  onOpenFile={onOpenFile}
                   nodeById={nodeById}
                   defaultOpen={displayTree.children.length <= 3}
                 />
@@ -561,8 +581,10 @@ export function FileTree({
                   depth={0}
                   selectedNodeId={selectedNodeId}
                   highlightedNodeIds={highlightedNodeIds}
+                  activeFilePath={activeFilePath}
                   onSelectNode={onSelectNode}
                   onHighlightNodes={onHighlightNodes}
+                  onOpenFile={onOpenFile}
                   nodeById={nodeById}
                 />
               ),
