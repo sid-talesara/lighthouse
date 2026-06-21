@@ -15,6 +15,7 @@ import { extractDbTables } from "../repo/db-schema.js";
 import { extractPullRequests } from "../repo/git-log.js";
 import { deriveServices } from "../repo/services.js";
 import { indexTrackedFiles } from "../repo/tracked-files.js";
+import { setRepoRoot } from "./file.js";
 import { writeFileAtomic } from "../utils/atomic-write.js";
 import { validateRepoPath } from "../utils/path-safety.js";
 import { LighthouseDataSchema } from "../validate/schema.js";
@@ -332,6 +333,10 @@ async function runGeneration(options: {
 
     const validated = LighthouseDataSchema.parse({
       ...parsed,
+      repo: {
+        ...parsed.repo,
+        path: options.repoPath,
+      },
       files: indexedFiles,
       ...(pullRequests ? { pullRequests } : {}),
       ...(dbTables ? { dbTables } : {}),
@@ -544,6 +549,7 @@ generateRouter.get("/data", (_req, res) => {
     const raw = readFileSync(GENERATED_DATA_PATH, "utf8");
     const parsed = JSON.parse(raw);
     const validated = LighthouseDataSchema.parse(parsed);
+    if (validated.repo.path) setRepoRoot(validateRepoPath(validated.repo.path));
     res.setHeader("Cache-Control", "no-store");
     res.json(validated);
   } catch (error) {

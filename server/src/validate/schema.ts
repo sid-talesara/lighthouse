@@ -156,6 +156,7 @@ export const LighthouseDataSchema = z
     repo: z.object({
       name: NonEmptyString,
       description: NonEmptyString,
+      path: z.string().optional(),
     }),
     clusters: z.array(ClusterSchema),
     nodes: z.array(NodeSchema),

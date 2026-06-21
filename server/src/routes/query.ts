@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { z, ZodError } from "zod";
@@ -8,6 +9,7 @@ import { buildQueryPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
 import { buildLocalIndexAnswer, buildRankedEvidence, filePathsFromEvidence, highlightsFromEvidence, visualBlocksFromEvidence, wantsDiagram } from "../query/evidence.js";
 import type { QueryAnswer, QueryEvidence, QueryVisualBlock } from "../query/types.js";
+import { getRepoRoot } from "./file.js";
 import { validateRepoPath } from "../utils/path-safety.js";
 import { LighthouseDataSchema } from "../validate/schema.js";
 
@@ -186,26 +188,80 @@ function sanitizeCodexVisualBlocks(
   });
 }
 
-function fallbackChangeReviewBlock(markdown: string): QueryVisualBlock {
+function runGit(repoPath: string, args: string[]): string {
+  try {
+    return execFileSync("git", args, {
+      cwd: repoPath,
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      timeout: 4_000,
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function changedPathsFromStatus(status: string): string[] {
+  return status
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => {
+      const value = line.slice(3).trim();
+      const renamed = value.split(" -> ");
+      return renamed[renamed.length - 1] ?? value;
+    })
+    .filter((filePath) => filePath.length > 0 && !filePath.startsWith(".."))
+    .slice(0, 12);
+}
+
+function summarizeChangedSurface(paths: string[]): string {
+  const surfaces = new Set<string>();
+  for (const filePath of paths) {
+    if (filePath === "src/App.tsx") surfaces.add("application shell, onboarding, and top-level query state");
+    else if (filePath.startsWith("server/src/routes/")) surfaces.add("backend API routes");
+    else if (filePath.startsWith("server/src/agent/")) surfaces.add("local Codex prompt/runtime orchestration");
+    else if (filePath.startsWith("server/src/validate/") || filePath.startsWith("src/types/")) surfaces.add("generated map data contract");
+    else if (filePath.startsWith("src/components/views/")) surfaces.add("code intelligence views");
+    else if (filePath.startsWith("src/components/wiki/")) surfaces.add("module wiki source/details panels");
+    else if (filePath.startsWith("src/lib/")) surfaces.add("client data loading and file-content utilities");
+    else if (filePath.startsWith("public/")) surfaces.add("generated demo/map data");
+    else surfaces.add(filePath.split("/").slice(0, 2).join("/") || filePath);
+  }
+  return Array.from(surfaces).slice(0, 8).join("; ");
+}
+
+function fallbackChangeReviewBlock(markdown: string, repoPath: string): QueryVisualBlock {
+  const status = runGit(repoPath, ["status", "--short", "--untracked-files=all"]);
+  const stat = runGit(repoPath, ["diff", "--stat", "HEAD"]);
+  const changedPaths = changedPathsFromStatus(status);
+  const surface = summarizeChangedSurface(changedPaths);
+  const pathList = changedPaths.length > 0 ? changedPaths.join(", ") : "no local changed paths were detected";
+
   return {
     type: "change_review",
     title: "Change review",
     items: [
       {
         label: "Before",
-        value: "Local Codex did not return a separate before-state field. Read the findings above for the inferred previous behavior.",
+        value: `Before this worktree state, the checked-in app depended on the previous behavior for ${surface || "the inspected repository surfaces"}. Changed paths now under review: ${pathList}.`,
       },
       {
         label: "After",
-        value: "Local Codex did not return a separate after-state field. Read the findings above for the inferred new behavior.",
+        value: `After the current changes, Lighthouse should expose the modified behavior in those surfaces. Codex's narrative answer is still shown above; this block is derived from the actual repository diff when the agent response omits structured fields.`,
       },
       {
         label: "Changed surface",
-        value: "See the evidence files and Codex activity for the modules, routes, schemas, or workflows inspected.",
+        value: surface || "No categorized changed surface was detected from git status.",
       },
       {
         label: "Risks",
-        value: markdown.replace(/\s+/g, " ").trim().slice(0, 700) || "No specific risk text was returned.",
+        value: markdown.replace(/\s+/g, " ").trim().slice(0, 700) || "Codex did not return specific risks. Review the changed files and run the relevant UI/API checks before landing.",
+      },
+      {
+        label: "Evidence",
+        value: [status, stat].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 700)
+          || "git status and git diff --stat did not return local evidence.",
       },
     ],
   };
@@ -257,7 +313,7 @@ function sanitizeCodexAnswer(input: {
   const hasChangeReviewBlock = codexVisualBlocks.some((block) => block.type === "change_review");
   const needsChangeReviewBlock = Boolean(input.directReason?.toLowerCase().includes("change review"));
   const visualBlocks = needsChangeReviewBlock && !hasChangeReviewBlock
-    ? [fallbackChangeReviewBlock(markdown), ...codexVisualBlocks]
+    ? [fallbackChangeReviewBlock(markdown, input.repoPath), ...codexVisualBlocks]
     : codexVisualBlocks;
   const evidenceVisualBlocks = visualBlocksFromEvidence(selectedEvidence, { includeDiagram: input.includeDiagram });
 
@@ -344,7 +400,7 @@ queryRouter.post("/query", async (req, res) => {
   try {
     const { question, data, repoPath, model } = parseQueryRequest(req.body);
     const evidence = buildRankedEvidence({ question, data });
-    const repo = validateOptionalRepoPath(repoPath);
+    const repo = validateOptionalRepoPath(repoPath ?? data.repo.path ?? getRepoRoot() ?? undefined);
     const includeDiagram = wantsDiagram(question);
     const codeRelated = looksCodeRelated(question);
     const changeReview = looksChangeReview(question);
