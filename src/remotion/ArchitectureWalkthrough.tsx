@@ -1,4 +1,4 @@
-import {AbsoluteFill, Sequence} from 'remotion';
+import {AbsoluteFill, Audio, Sequence, staticFile} from 'remotion';
 import {useMemo} from 'react';
 import {useArchitectureData} from './architecture-data';
 import {STORYBOARD} from './storyboard';
@@ -46,6 +46,7 @@ export const ArchitectureWalkthrough: React.FC = () => {
 
   return (
     <AbsoluteFill style={{background: '#eef0e8'}}>
+      <Audio src={staticFile('remotion/architecture-walkthrough.mp3')} volume={0.85} />
       {scenes.map(({scene, render: Scene}) => (
         <Sequence key={scene.id} from={scene.startFrame} durationInFrames={scene.durationInFrames}>
           <Scene snapshot={snapshot} scene={scene} />
