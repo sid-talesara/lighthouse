@@ -537,7 +537,14 @@ export default function App() {
       },
       ...generateContract,
     };
-    return <Onboarding {...(onboardingProps as React.ComponentProps<typeof Onboarding>)} />;
+    // The global shell clips overflow (html/body/#root) to keep the in-app
+    // chrome fixed; the landing is taller than the viewport, so give it its
+    // own full-height scroll container.
+    return (
+      <div className="h-screen overflow-y-auto">
+        <Onboarding {...(onboardingProps as React.ComponentProps<typeof Onboarding>)} />
+      </div>
+    );
   }
 
   // ── Loading state ──────────────────────────────────────────────────
