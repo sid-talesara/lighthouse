@@ -16,6 +16,11 @@ server/.env.*
 # Local runtime data
 .lighthouse/
 
+# Tooling / generated artifacts
+out/
+outputs/
+.playwright-cli/
+
 # Logs
 logs/
 *.log
