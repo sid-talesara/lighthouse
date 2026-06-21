@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "remotion:studio": "remotion studio src/remotion/index.ts",
     "remotion:render": "remotion render src/remotion/index.ts ArchitectureWalkthrough out/architecture-walkthrough.mp4",
-    "remotion:still": "remotion still src/remotion/index.ts ArchitectureWalkthrough out/architecture-walkthrough.png"
+    "remotion:still": "remotion still src/remotion/index.ts ArchitectureWalkthrough out/architecture-walkthrough.png",
+    "remotion:voiceover": "node scripts/generate-remotion-voiceover.mjs"
   },
   "dependencies": {
     "@types/react-syntax-highlighter": "^15.5.13",
