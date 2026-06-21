@@ -21,7 +21,8 @@
  *   <CodeViewer path="src/lib/utils.ts" content={code} language="typescript" />
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { fetchFileContent } from "../lib/fileContent";
 import type { FileContentResult } from "../lib/fileContent";
@@ -166,6 +167,91 @@ function LanguageBadge({ lang }: { lang: string }) {
   );
 }
 
+// ── Icon buttons in the header ───────────────────────────────────────────────
+
+interface IconButtonProps {
+  onClick: () => void;
+  title: string;
+  active?: boolean;
+  children: React.ReactNode;
+}
+
+function HeaderIconButton({ onClick, title, active = false, children }: IconButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "24px",
+        height: "24px",
+        borderRadius: "4px",
+        border: "none",
+        background: active ? "rgba(247,165,1,0.15)" : "transparent",
+        color: active ? "#F7A501" : "#6C6E63",
+        cursor: "pointer",
+        flexShrink: 0,
+        padding: 0,
+        transition: "background 0.12s, color 0.12s",
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = "rgba(238,239,233,0.07)";
+          (e.currentTarget as HTMLButtonElement).style.color = "#C4C5BC";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+          (e.currentTarget as HTMLButtonElement).style.color = "#6C6E63";
+        }
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Wrap toggle icon ─────────────────────────────────────────────────────────
+
+function WrapIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="17 10 21 6 17 2" />
+      <path d="M3 6h18" />
+      <path d="M3 12h15a3 3 0 0 1 0 6h-4" />
+      <polyline points="7 18 3 14 7 10" />
+    </svg>
+  );
+}
+
+// ── Expand icon ──────────────────────────────────────────────────────────────
+
+function ExpandIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </svg>
+  );
+}
+
+// ── Close icon ───────────────────────────────────────────────────────────────
+
+function CloseIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
 // ── Loading skeleton ─────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
@@ -208,6 +294,245 @@ function UnavailableState({ message }: { message: string }) {
   );
 }
 
+// ── Code block (shared between inline + modal) ────────────────────────────────
+
+interface CodeBlockProps {
+  displayedContent: string;
+  prismLang: string;
+  snippetMode: boolean;
+  startLine?: number;
+  relativeHighlights: number[];
+  maxHeight: string | number;
+  wrap: boolean;
+}
+
+function CodeBlock({
+  displayedContent,
+  prismLang,
+  snippetMode,
+  startLine,
+  relativeHighlights,
+  maxHeight,
+  wrap,
+}: CodeBlockProps) {
+  return (
+    <div
+      style={{
+        overflowX: wrap ? "hidden" : "auto",
+        overflowY: "auto",
+        maxHeight,
+      }}
+    >
+      <SyntaxHighlighter
+        language={prismLang}
+        style={posthogTheme}
+        showLineNumbers
+        startingLineNumber={snippetMode ? (startLine ?? 1) : 1}
+        wrapLines={wrap}
+        wrapLongLines={wrap}
+        lineProps={(lineNumber: number) => {
+          const isHighlighted = relativeHighlights.includes(lineNumber);
+          return {
+            style: {
+              display: "block",
+              background: isHighlighted
+                ? "rgba(247,165,1,0.12)"
+                : "transparent",
+              borderLeft: isHighlighted
+                ? "3px solid #F7A501"
+                : "3px solid transparent",
+              paddingLeft: "16px",
+              paddingRight: "20px",
+              // When not wrapping, prevent individual lines from wrapping
+              whiteSpace: wrap ? "pre-wrap" : "pre",
+            },
+          };
+        }}
+        lineNumberStyle={{
+          minWidth: "3em",
+          paddingRight: "1.5em",
+          color: "#4B4B4B",
+          userSelect: "none",
+          textAlign: "right",
+        }}
+        customStyle={{
+          margin: 0,
+          padding: "16px 0",
+          background: "#23251D",
+          fontSize: "13px",
+          lineHeight: "1.6",
+          minHeight: "4rem",
+          // When not wrapping we must NOT constrain width so x-scroll works
+          minWidth: wrap ? undefined : "max-content",
+          width: wrap ? "100%" : undefined,
+        }}
+      >
+        {displayedContent}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
+
+// ── Expand modal ─────────────────────────────────────────────────────────────
+
+interface ExpandModalProps {
+  path: string;
+  fileName: string;
+  resolvedLanguage: string;
+  prismLang: string;
+  snippetMode: boolean;
+  startLine?: number;
+  endLine?: number;
+  allLines: string[];
+  displayedContent: string;
+  relativeHighlights: number[];
+  fetchResult: FileContentResult | null;
+  onClose: () => void;
+}
+
+function ExpandModal({
+  path,
+  fileName,
+  resolvedLanguage,
+  prismLang,
+  snippetMode,
+  startLine,
+  endLine,
+  allLines,
+  displayedContent,
+  relativeHighlights,
+  fetchResult,
+  onClose,
+}: ExpandModalProps) {
+  const [modalWrap, setModalWrap] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Close on Escape
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  // Trap body scroll while open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  function handleOverlayClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.target === overlayRef.current) onClose();
+  }
+
+  return createPortal(
+    <div
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        background: "rgba(0,0,0,0.72)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+      }}
+      aria-modal="true"
+      role="dialog"
+      aria-label={`Expanded view: ${path}`}
+    >
+      {/* Modal container */}
+      <div
+        style={{
+          width: "min(96vw, 1200px)",
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+          border: "1px solid #3A3C32",
+          borderRadius: "6px",
+          background: "#23251D",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+          overflow: "hidden",
+        }}
+      >
+        {/* Modal header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "10px 14px",
+            borderBottom: "1px solid #3A3C32",
+            background: "#1A1C14",
+            flexShrink: 0,
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6C6E63" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          <span
+            style={{
+              flex: 1,
+              fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+              fontSize: "12px",
+              color: "#C4C5BC",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={path}
+          >
+            {path}
+          </span>
+
+          {snippetMode && (
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: "11px", color: "#6C6E63", flexShrink: 0 }}>
+              L{startLine ?? 1}–{endLine ?? allLines.length}
+            </span>
+          )}
+
+          <LanguageBadge lang={fileName.includes(".") ? resolvedLanguage : prismLang} />
+
+          {fetchResult?.truncated && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: "#FEF3C7", color: "#92400E" }}>
+              truncated
+            </span>
+          )}
+
+          {/* Wrap toggle inside modal */}
+          <HeaderIconButton onClick={() => setModalWrap((v) => !v)} title={modalWrap ? "Disable line wrap" : "Enable line wrap"} active={modalWrap}>
+            <WrapIcon />
+          </HeaderIconButton>
+
+          {/* Close button */}
+          <HeaderIconButton onClick={onClose} title="Close (Esc)">
+            <CloseIcon />
+          </HeaderIconButton>
+        </div>
+
+        {/* Modal code body — fills remaining height */}
+        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <CodeBlock
+            displayedContent={displayedContent}
+            prismLang={prismLang}
+            snippetMode={snippetMode}
+            startLine={startLine}
+            relativeHighlights={relativeHighlights}
+            maxHeight="100%"
+            wrap={modalWrap}
+          />
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ── Props ────────────────────────────────────────────────────────────────────
 
 export interface CodeViewerProps {
@@ -243,6 +568,10 @@ export function CodeViewer({
 }: CodeViewerProps) {
   const [fetchResult, setFetchResult] = useState<FileContentResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [wrap, setWrap] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const handleClose = useCallback(() => setExpanded(false), []);
 
   // Fetch content from server when no prop is provided.
   useEffect(() => {
@@ -312,126 +641,134 @@ export function CodeViewer({
   const fileName = path.split("/").pop() ?? path;
 
   return (
-    <div
-      className={`rounded-ph overflow-hidden ${className}`}
-      style={{ border: "1px solid #3A3C32", background: "#23251D" }}
-    >
-      {/* ── Header ── */}
+    <>
       <div
-        className="flex items-center gap-2 px-4 py-2.5"
-        style={{
-          borderBottom: "1px solid #3A3C32",
-          background: "#1A1C14",
-        }}
+        className={`rounded-ph overflow-hidden ${className}`}
+        style={{ border: "1px solid #3A3C32", background: "#23251D" }}
       >
-        {/* File icon */}
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#6C6E63"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          style={{ flexShrink: 0 }}
-        >
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-        </svg>
-
-        {/* Path */}
-        <span
-          className="flex-1 truncate"
-          title={path}
+        {/* ── Header ── */}
+        <div
+          className="flex items-center gap-2 px-4 py-2.5"
           style={{
-            fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
-            fontSize: "12px",
-            color: "#C4C5BC",
-            letterSpacing: "0",
+            borderBottom: "1px solid #3A3C32",
+            background: "#1A1C14",
           }}
         >
-          {path}
-        </span>
+          {/* File icon */}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#6C6E63"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            style={{ flexShrink: 0 }}
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
 
-        {/* Snippet range indicator */}
-        {snippetMode && (
+          {/* Path */}
           <span
+            className="flex-1 truncate"
+            title={path}
             style={{
-              fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: "11px",
-              color: "#6C6E63",
-              flexShrink: 0,
+              fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+              fontSize: "12px",
+              color: "#C4C5BC",
+              letterSpacing: "0",
             }}
           >
-            L{startLine ?? 1}–{endLine ?? allLines.length}
+            {path}
           </span>
-        )}
 
-        {/* Language badge */}
-        <LanguageBadge lang={fileName.includes(".") ? resolvedLanguage : prismLang} />
+          {/* Snippet range indicator */}
+          {snippetMode && (
+            <span
+              style={{
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: "11px",
+                color: "#6C6E63",
+                flexShrink: 0,
+              }}
+            >
+              L{startLine ?? 1}–{endLine ?? allLines.length}
+            </span>
+          )}
 
-        {/* Truncated warning */}
-        {fetchResult?.truncated && (
-          <span
-            className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold"
-            style={{ background: "#FEF3C7", color: "#92400E" }}
-          >
-            truncated
-          </span>
+          {/* Language badge */}
+          <LanguageBadge lang={fileName.includes(".") ? resolvedLanguage : prismLang} />
+
+          {/* Truncated warning */}
+          {fetchResult?.truncated && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold"
+              style={{ background: "#FEF3C7", color: "#92400E" }}
+            >
+              truncated
+            </span>
+          )}
+
+          {/* Wrap toggle — only show when content is available */}
+          {!loading && !isUnavailable && (
+            <HeaderIconButton
+              onClick={() => setWrap((v) => !v)}
+              title={wrap ? "Disable line wrap" : "Enable line wrap"}
+              active={wrap}
+            >
+              <WrapIcon />
+            </HeaderIconButton>
+          )}
+
+          {/* Expand button — only show when content is available */}
+          {!loading && !isUnavailable && (
+            <HeaderIconButton
+              onClick={() => setExpanded(true)}
+              title="Expand to full view"
+            >
+              <ExpandIcon />
+            </HeaderIconButton>
+          )}
+        </div>
+
+        {/* ── Body ── */}
+        {loading ? (
+          <LoadingSkeleton />
+        ) : isUnavailable ? (
+          <UnavailableState message={errorMessage ?? "File content unavailable."} />
+        ) : (
+          <CodeBlock
+            displayedContent={displayedContent}
+            prismLang={prismLang}
+            snippetMode={snippetMode}
+            startLine={startLine}
+            relativeHighlights={relativeHighlights}
+            maxHeight={maxHeight}
+            wrap={wrap}
+          />
         )}
       </div>
 
-      {/* ── Body ── */}
-      {loading ? (
-        <LoadingSkeleton />
-      ) : isUnavailable ? (
-        <UnavailableState message={errorMessage ?? "File content unavailable."} />
-      ) : (
-        <div style={{ overflowX: "auto", maxHeight, overflowY: "auto" }}>
-          <SyntaxHighlighter
-            language={prismLang}
-            style={posthogTheme}
-            showLineNumbers
-            startingLineNumber={snippetMode ? (startLine ?? 1) : 1}
-            wrapLines
-            lineProps={(lineNumber: number) => {
-              const isHighlighted = relativeHighlights.includes(lineNumber);
-              return {
-                style: {
-                  display: "block",
-                  background: isHighlighted
-                    ? "rgba(247,165,1,0.12)"
-                    : "transparent",
-                  borderLeft: isHighlighted
-                    ? "3px solid #F7A501"
-                    : "3px solid transparent",
-                  paddingLeft: "16px",
-                  paddingRight: "20px",
-                },
-              };
-            }}
-            lineNumberStyle={{
-              minWidth: "3em",
-              paddingRight: "1.5em",
-              color: "#4B4B4B",
-              userSelect: "none",
-              textAlign: "right",
-            }}
-            customStyle={{
-              margin: 0,
-              padding: "16px 0",
-              background: "#23251D",
-              fontSize: "13px",
-              lineHeight: "1.6",
-              minHeight: "4rem",
-            }}
-          >
-            {displayedContent}
-          </SyntaxHighlighter>
-        </div>
+      {/* ── Expand modal (portal) ── */}
+      {expanded && (
+        <ExpandModal
+          path={path}
+          fileName={fileName}
+          resolvedLanguage={resolvedLanguage}
+          prismLang={prismLang}
+          snippetMode={snippetMode}
+          startLine={startLine}
+          endLine={endLine}
+          allLines={allLines}
+          displayedContent={displayedContent}
+          relativeHighlights={relativeHighlights}
+          fetchResult={fetchResult}
+          onClose={handleClose}
+        />
       )}
-    </div>
+    </>
   );
 }
