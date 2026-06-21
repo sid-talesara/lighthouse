@@ -30,6 +30,11 @@ export interface QueryProgressEvent {
   codexType?: string;
 }
 
+export interface QueryConversationTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface QueryResult {
   source: QuerySource;
   source_reason: string;

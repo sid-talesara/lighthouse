@@ -32,6 +32,11 @@ export interface QueryProgressEvent {
   codexType?: string;
 }
 
+export interface QueryConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface QueryAnswer {
   source: QuerySource;
   source_reason: string;

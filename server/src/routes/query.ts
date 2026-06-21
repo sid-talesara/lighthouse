@@ -9,7 +9,7 @@ import { buildQueryPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
 import { buildLocalIndexAnswer, buildRankedEvidence, filePathsFromEvidence, highlightsFromEvidence, visualBlocksFromEvidence, wantsDiagram } from "../query/evidence.js";
 import { buildRepoRagEvidence } from "../query/repo-rag.js";
-import type { QueryAnswer, QueryEvidence, QueryVisualBlock } from "../query/types.js";
+import type { QueryAnswer, QueryConversationTurn, QueryEvidence, QueryVisualBlock } from "../query/types.js";
 import { getRepoRoot } from "./file.js";
 import { validateRepoPath } from "../utils/path-safety.js";
 import { LighthouseDataSchema } from "../validate/schema.js";
@@ -17,7 +17,7 @@ import { LighthouseDataSchema } from "../validate/schema.js";
 const MAX_CODEX_EVIDENCE = 8;
 const MAX_COMBINED_EVIDENCE = 12;
 const CODE_RELATED_TERMS =
-  /\b(api|auth|build|class|component|database|dependency|endpoint|error|file|flow|function|hook|module|package|pr|pull request|query|route|schema|service|test|worker|where|how)\b/i;
+  /\b(api|auth|build|class|component|database|dependency|endpoint|error|file|flow|function|hook|module|package|pr|pull request|query|route|schema|service|test|worker)\b/i;
 const CODE_PATH_PATTERN = /[A-Za-z0-9_.@-]+\/[A-Za-z0-9_./@-]+|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|json|css|md|py|go|rs|java|rb|php|yml|yaml)\b/i;
 const CHANGE_REVIEW_TERMS = /\b(pr|pull request|change review|review changes|review diff|code review)\b|github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/i;
 
@@ -43,6 +43,10 @@ const QueryRequestSchema = z.object({
   data: LighthouseDataSchema,
   repoPath: OptionalStringSchema,
   model: OptionalStringSchema,
+  conversation: z.array(z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string().trim().min(1).max(4_000),
+  })).max(12).optional(),
 });
 
 function formatZodIssues(error: ZodError): string {
@@ -94,6 +98,19 @@ function looksCodeRelated(question: string): boolean {
 
 function looksChangeReview(question: string): boolean {
   return CHANGE_REVIEW_TERMS.test(question);
+}
+
+function safeRepoRagEvidence(input: { question: string; repoPath: string }): {
+  evidence: QueryEvidence[];
+  error?: string;
+} {
+  try {
+    return {
+      evidence: buildRepoRagEvidence({ question: input.question, repoPath: input.repoPath, limit: 8 }),
+    };
+  } catch (error) {
+    return { evidence: [], error: formatError(error) };
+  }
 }
 
 function mergeEvidence(mapEvidence: QueryEvidence[], repoEvidence: QueryEvidence[]): QueryEvidence[] {
@@ -356,6 +373,7 @@ async function answerWithCodex(input: {
   question: string;
   repoPath: string;
   model?: string;
+  conversation?: QueryConversationTurn[];
   evidence: QueryEvidence[];
   fallback: QueryAnswer;
   signal?: AbortSignal;
@@ -367,6 +385,7 @@ async function answerWithCodex(input: {
   const events: QueryAnswer["query_events"] = [];
   const prompt = buildQueryPrompt({
     question: input.question,
+    conversationJson: JSON.stringify(input.conversation ?? [], null, 2),
     evidenceJson: JSON.stringify(
       input.evidence.slice(0, MAX_CODEX_EVIDENCE).map((item) => ({
         id: item.id,
@@ -416,16 +435,22 @@ queryRouter.post("/query", async (req, res) => {
   });
 
   try {
-    const { question, data, repoPath, model } = parseQueryRequest(req.body);
+    const { question, data, repoPath, model, conversation } = parseQueryRequest(req.body);
     const repo = validateOptionalRepoPath(repoPath ?? data.repo.path ?? getRepoRoot() ?? undefined);
     const mapEvidence = buildRankedEvidence({ question, data });
-    const repoEvidence = repo.repoPath
-      ? buildRepoRagEvidence({ question, repoPath: repo.repoPath, limit: 8 })
-      : [];
-    const evidence = mergeEvidence(mapEvidence, repoEvidence);
     const includeDiagram = wantsDiagram(question);
     const codeRelated = looksCodeRelated(question);
     const changeReview = looksChangeReview(question);
+    const hasConversationContext = Boolean(conversation?.length);
+    const shouldUseRepoRetrieval = Boolean(
+      repo.repoPath &&
+      (codeRelated || changeReview || includeDiagram || mapEvidence.length > 0 || hasConversationContext),
+    );
+    const repoRag = shouldUseRepoRetrieval && repo.repoPath
+      ? safeRepoRagEvidence({ question, repoPath: repo.repoPath })
+      : { evidence: [] };
+    const repoEvidence = repoRag.evidence;
+    const evidence = mergeEvidence(mapEvidence, repoEvidence);
     const fallback = buildLocalIndexAnswer(
       question,
       data,
@@ -444,6 +469,7 @@ queryRouter.post("/query", async (req, res) => {
           question,
           repoPath: repo.repoPath,
           model,
+          conversation,
           evidence,
           signal: abortController.signal,
           directMode: true,
@@ -486,12 +512,13 @@ queryRouter.post("/query", async (req, res) => {
     }
 
     if (evidence.length === 0) {
-      if (repo.repoPath) {
+      if (repo.repoPath && (codeRelated || includeDiagram || hasConversationContext)) {
         try {
           const directAnswer = await answerWithCodex({
             question,
             repoPath: repo.repoPath,
             model,
+            conversation,
             evidence,
             signal: abortController.signal,
             directMode: true,
@@ -555,6 +582,7 @@ queryRouter.post("/query", async (req, res) => {
         question,
         repoPath: repo.repoPath,
         model,
+        conversation,
         evidence,
         signal: abortController.signal,
         directReason: repoEvidence.length > 0

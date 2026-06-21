@@ -22,6 +22,7 @@ const SKIP_PATH_PARTS = new Set([
 ]);
 
 const SKIP_BASENAMES = new Set([
+  "data.json",
   "package-lock.json",
   "pnpm-lock.yaml",
   "yarn.lock",
@@ -65,6 +66,7 @@ const TEXT_EXTENSIONS = new Set([
 const STOP_WORDS = new Set([
   "about",
   "after",
+  "are",
   "before",
   "does",
   "from",
@@ -81,6 +83,8 @@ const STOP_WORDS = new Set([
   "where",
   "which",
   "with",
+  "works",
+  "you",
 ]);
 
 interface IndexedDoc {
@@ -221,17 +225,33 @@ function bestSnippet(doc: IndexedDoc, terms: string[]): string {
 
 function scoreDoc(doc: IndexedDoc, terms: string[], questionLower: string): number {
   let score = 0;
+  let termScore = 0;
 
-  if (doc.pathLower.includes(questionLower)) score += 20;
   for (const term of terms) {
-    if (doc.pathLower.includes(term)) score += 10;
+    if (doc.pathLower.includes(term)) termScore += 10;
 
     const first = doc.textLower.indexOf(term);
     if (first !== -1) {
-      score += 2;
+      termScore += 2;
       const repeats = doc.textLower.split(term).length - 1;
-      score += Math.min(8, repeats);
+      termScore += Math.min(8, repeats);
     }
+  }
+
+  if (termScore === 0 && !doc.pathLower.includes(questionLower)) return 0;
+
+  score += termScore;
+  if (doc.pathLower.includes(questionLower)) score += 20;
+  if (/^(apps|packages|server|src)\//.test(doc.pathLower)) score += 16;
+  if (doc.pathLower.includes("/src/")) score += 10;
+  if (doc.pathLower.includes("/routes/") || doc.pathLower.includes("/plugins/") || doc.pathLower.includes("/services/")) {
+    score += 6;
+  }
+  if (doc.pathLower.includes("/test/") || doc.pathLower.includes(".test.") || doc.pathLower.includes(".spec.")) {
+    score -= 8;
+  }
+  if (/^(\.agents|docs|notes)\//.test(doc.pathLower) || doc.pathLower.includes("/references/")) {
+    score -= 18;
   }
 
   return score;
