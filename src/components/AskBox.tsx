@@ -1,12 +1,19 @@
-// Phase 3: Ask-the-Map UI component.
-// Floats over the map (bottom-center), shows demo chip suggestions,
-// accepts free-text input, and renders the LLM answer card.
+// Ask-the-Map UI — conversational panel.
+//
+// This is now a CHAT THREAD against the map, not a one-shot search:
+//   • Each question + its answer stack as turns (user bubble + answer card).
+//   • The input is pinned at the bottom; history scrolls above it.
+//   • Keeps the existing cache-first / live (local Codex) logic in `askMap`.
+//   • Every answer still drives the global highlight set via `onAnswer`
+//     (highlight-on-answer), and "Clear" wipes the thread + highlights.
+//
+// Layout: this component fills its container (it is rendered inside a
+// right-docked, resizable panel in App.tsx). It owns no docking chrome.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { LighthouseData } from "../types/lighthouse";
 import { askMap, type AskResult } from "../lib/ask";
-import { DEMO_QUESTIONS } from "../lib/askCache";
 import type { GenerateModel } from "../lib/generateOptions";
 import type { QuerySource, QueryVisualBlock } from "../types/query";
 
@@ -14,38 +21,62 @@ interface AskBoxProps {
   data: LighthouseData;
   repoPath?: string;
   model?: GenerateModel;
+  /** Push the highlight set for the latest answer (highlight-on-answer). */
   onAnswer: (ids: Set<string>) => void;
+  /** Clear the global highlight set (called on "Clear conversation"). */
   onClear: () => void;
+}
+
+/** A single completed conversation turn. */
+interface Turn {
+  id: string;
+  question: string;
+  result: AskResult;
 }
 
 export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps) {
   const [question, setQuestion] = useState("");
-  const [result, setResult] = useState<AskResult | null>(null);
+  const [turns, setTurns] = useState<Turn[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The question currently in-flight (shown as an optimistic user bubble).
+  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll the thread to the newest turn / pending bubble.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [turns, pendingQuestion, loading, error]);
 
   const submit = useCallback(
-    async (q: string, allowDemoCache = false) => {
+    async (q: string) => {
       const trimmed = q.trim();
       if (!trimmed) return;
 
       setLoading(true);
       setError(null);
-      setResult(null);
+      setPendingQuestion(trimmed);
+      setQuestion("");
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
       try {
         const ans = await askMap(trimmed, data, {
-          allowDemoCache,
+          // Conversational free-text: let the cache answer demo questions when
+          // they match, otherwise fall through to live local Codex.
+          allowDemoCache: true,
           repoPath,
           model,
           signal: controller.signal,
         });
-        setResult(ans);
+        setTurns((prev) => [
+          ...prev,
+          { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, question: trimmed, result: ans },
+        ]);
         onAnswer(new Set(ans.highlight_ids));
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") {
@@ -56,6 +87,7 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
         setLoading(false);
+        setPendingQuestion(null);
       }
     },
     [data, model, onAnswer, repoPath]
@@ -66,189 +98,239 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
     void submit(question);
   };
 
-  const handleChip = (q: string) => {
-    setQuestion(q);
-    void submit(q, true);
+  const handleStop = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
   };
 
   const handleClear = () => {
     abortRef.current?.abort();
     abortRef.current = null;
     setQuestion("");
-    setResult(null);
+    setTurns([]);
     setError(null);
+    setPendingQuestion(null);
+    setLoading(false);
     onClear();
     inputRef.current?.focus();
   };
 
+  const isEmpty = turns.length === 0 && !pendingQuestion && !error;
+
   return (
-    <div className="pointer-events-auto relative flex w-full flex-col gap-2">
-      {/* Input row */}
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Header */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-ph-border px-4 py-3">
+        <span className="text-base" aria-hidden>
+          💬
+        </span>
+        <span className="font-display text-heading-sm font-bold text-ph-ink">
+          Ask the map
+        </span>
+        {turns.length > 0 && (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="ml-auto rounded-ph-sm px-2 py-0.5 font-sans text-label text-ph-ash transition-colors hover:text-ph-ink"
+            title="Clear conversation"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Scrollable conversation history */}
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        {isEmpty && (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <span className="text-2xl" aria-hidden>
+              🔍
+            </span>
+            <p className="font-body text-body-sm text-ph-mute">
+              Ask anything about{" "}
+              <span className="font-mono text-code text-ph-ink">{data.repo.name}</span>.
+            </p>
+            <p className="font-body text-label text-ph-ash">
+              Answers light up the matching nodes on the map.
+            </p>
+          </div>
+        )}
+
+        {turns.map((turn) => (
+          <div key={turn.id} className="space-y-2.5">
+            <UserBubble text={turn.question} />
+            <AnswerCard result={turn.result} />
+          </div>
+        ))}
+
+        {/* Optimistic pending turn */}
+        {pendingQuestion && (
+          <div className="space-y-2.5">
+            <UserBubble text={pendingQuestion} />
+            {loading && (
+              <div className="flex items-center gap-2 rounded-ph border border-ph-border bg-ph-surface px-4 py-3">
+                <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-ph-border border-t-ph-yellow" />
+                <span className="font-body text-body-sm text-ph-mute">
+                  Searching the map…
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-ph border border-ph-red bg-ph-red-soft px-4 py-3 font-body text-body-sm text-ph-red">
+            {error}
+          </div>
+        )}
+      </div>
+
+      {/* Input pinned at the bottom */}
       <form
         onSubmit={handleSubmit}
-        className="flex items-center gap-2 rounded-ph border border-ph-border bg-ph-canvas px-3 py-1.5 transition-shadow duration-100 focus-within:border-ph-blue focus-within:shadow-ph-focus"
+        className="shrink-0 border-t border-ph-border bg-ph-surface p-3"
       >
-        <span className="shrink-0 text-base" aria-hidden>
-          🔍
-        </span>
-
-        <input
-          ref={inputRef}
-          type="text"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask the local map anything..."
-          disabled={loading}
-          className="min-w-0 flex-1 bg-transparent font-body text-sm text-ph-ink placeholder:text-ph-ash focus:outline-none disabled:opacity-50"
-        />
-
-        {loading && (
-          <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-ph-border border-t-ph-yellow" />
-        )}
-
-        {result && (
-          <button
-            type="button"
-            onClick={handleClear}
-            className="shrink-0 rounded-ph-sm px-1.5 py-0.5 font-sans text-label text-ph-ash transition-colors hover:text-ph-ink"
-            title="Clear"
-          >
-            ✕
-          </button>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading || !question.trim()}
-          className="shrink-0 rounded-ph border border-ph-yellow-pressed bg-ph-yellow px-3.5 py-1.5 font-sans text-sm font-bold text-ph-ink transition-colors duration-75 hover:bg-ph-yellow-pressed active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Ask
-        </button>
-        {loading && (
-          <button
-            type="button"
-            onClick={handleClear}
-            className="shrink-0 rounded-ph border border-ph-red/30 bg-ph-red-soft px-3 py-1.5 font-sans text-sm font-bold text-ph-red transition-colors hover:bg-ph-red/15"
-          >
-            Stop
-          </button>
-        )}
-      </form>
-
-      {/* Chip suggestions */}
-      {!result && !loading && (
-        <div className="flex flex-wrap gap-1.5">
-          {DEMO_QUESTIONS.map((dq) => (
+        <div className="flex items-center gap-2 rounded-ph border border-ph-border bg-ph-canvas px-3 py-1.5 transition-shadow duration-100 focus-within:border-ph-blue focus-within:shadow-ph-focus">
+          <input
+            ref={inputRef}
+            type="text"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="Ask the local map anything..."
+            disabled={loading}
+            className="min-w-0 flex-1 bg-transparent font-body text-sm text-ph-ink placeholder:text-ph-ash focus:outline-none disabled:opacity-50"
+          />
+          {loading ? (
             <button
-              key={dq}
-              onClick={() => handleChip(dq)}
-              className="rounded-ph-pill border border-ph-border bg-ph-surface px-3 py-1 font-sans text-label text-ph-mute transition-colors hover:border-ph-yellow hover:text-ph-ink"
+              type="button"
+              onClick={handleStop}
+              className="shrink-0 rounded-ph border border-ph-red/30 bg-ph-red-soft px-3 py-1.5 font-sans text-sm font-bold text-ph-red transition-colors hover:bg-ph-red/15"
             >
-              {dq}
+              Stop
             </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!question.trim()}
+              className="shrink-0 rounded-ph border border-ph-yellow-pressed bg-ph-yellow px-3.5 py-1.5 font-sans text-sm font-bold text-ph-ink transition-colors duration-75 hover:bg-ph-yellow-pressed active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Ask
+            </button>
+          )}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function UserBubble({ text }: { text: string }) {
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[88%] rounded-ph rounded-tr-sm border border-ph-yellow-pressed bg-ph-yellow px-3.5 py-2 font-body text-body-sm text-ph-ink">
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function AnswerCard({ result }: { result: AskResult }) {
+  return (
+    <div className="rounded-ph rounded-tl-sm border border-ph-border bg-ph-surface px-4 py-3.5">
+      {/* Source badge */}
+      <div className="mb-2.5 flex items-center gap-2">
+        <span
+          className={[
+            "rounded-ph-pill px-2.5 py-0.5 font-sans text-label uppercase tracking-wider",
+            sourceBadgeClass(result.source),
+          ].join(" ")}
+        >
+          {sourceLabel(result.source)}
+        </span>
+        {result.repo_path_status === "invalid" && (
+          <span className="font-sans text-label text-ph-ash">repo path ignored</span>
+        )}
+        <span className="ml-auto font-mono text-code text-ph-ash">
+          {result.highlight_ids.length} node
+          {result.highlight_ids.length !== 1 ? "s" : ""} highlighted
+        </span>
+      </div>
+
+      {/* Explanation */}
+      <div className="font-body text-body-sm leading-relaxed text-ph-body [&_strong]:font-semibold [&_strong]:text-ph-ink">
+        <ReactMarkdown>{result.markdown}</ReactMarkdown>
+      </div>
+
+      <div className="mt-2 rounded-ph-sm border border-ph-border bg-ph-canvas px-3 py-2 font-body text-label leading-snug text-ph-mute">
+        <div>{result.source_reason}</div>
+        <div>
+          Indexing mode:{" "}
+          {result.indexing_mode === "local-codex-with-map-evidence"
+            ? "deterministic map evidence + local Codex"
+            : result.indexing_mode === "local-codex-direct"
+              ? "local Codex direct repo search"
+              : "deterministic map evidence"}
+        </div>
+      </div>
+
+      {result.visual_blocks.length > 0 && (
+        <div className="mt-3 grid gap-2">
+          {result.visual_blocks.slice(0, 2).map((block, index) => (
+            <VisualBlockView key={`${block.type}-${block.title}-${index}`} block={block} />
           ))}
         </div>
       )}
 
-      {/* Error state */}
-      {error && (
-        <div className="rounded-ph border border-ph-red bg-ph-red-soft px-4 py-3 font-body text-body-sm text-ph-red">
-          {error}
+      {result.query_events.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
+            Codex activity
+          </div>
+          <div className="max-h-32 space-y-1 overflow-y-auto rounded-ph-sm border border-ph-border bg-ph-canvas p-2">
+            {result.query_events.slice(-6).map((event, index) => (
+              <div
+                key={`${event.elapsedMs}-${event.message}-${index}`}
+                className="flex gap-2 font-mono text-code text-ph-body"
+              >
+                <span className="shrink-0 text-ph-ash">
+                  {Math.floor(event.elapsedMs / 1000)}s
+                </span>
+                <span className="min-w-0 break-words">{event.message}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Answer card — floats below the input over content */}
-      {result && !error && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-full max-w-[540px] rounded-ph border border-ph-border bg-ph-surface px-5 py-4 shadow-ph-float">
-          {/* Source badge */}
-          <div className="mb-2.5 flex items-center gap-2">
-            <span
-              className={[
-                'rounded-ph-pill px-2.5 py-0.5 font-sans text-label uppercase tracking-wider',
-                sourceBadgeClass(result.source),
-              ].join(' ')}
-            >
-              {sourceLabel(result.source)}
-            </span>
-            {result.repo_path_status === "invalid" && (
-              <span className="font-sans text-label text-ph-ash">repo path ignored</span>
-            )}
-            <span className="ml-auto font-mono text-code text-ph-ash">
-              {result.highlight_ids.length} node
-              {result.highlight_ids.length !== 1 ? "s" : ""} highlighted
-            </span>
+      {result.file_paths.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
+            Evidence files
           </div>
-
-          {/* Explanation */}
-          <div className="font-body text-body-sm leading-relaxed text-ph-body [&_strong]:font-semibold [&_strong]:text-ph-ink">
-            <ReactMarkdown>{result.markdown}</ReactMarkdown>
-          </div>
-
-          <div className="mt-2 rounded-ph-sm border border-ph-border bg-ph-canvas px-3 py-2 font-body text-label leading-snug text-ph-mute">
-            <div>{result.source_reason}</div>
-            <div>
-              Indexing mode: {result.indexing_mode === "local-codex-with-map-evidence"
-                ? "deterministic map evidence + local Codex"
-                : result.indexing_mode === "local-codex-direct"
-                  ? "local Codex direct repo search"
-                : "deterministic map evidence"}
-            </div>
-          </div>
-
-          {result.visual_blocks.length > 0 && (
-            <div className="mt-3 grid gap-2">
-              {result.visual_blocks.slice(0, 2).map((block, index) => (
-                <VisualBlockView key={`${block.type}-${block.title}-${index}`} block={block} />
-              ))}
-            </div>
-          )}
-
-          {result.query_events.length > 0 && (
-            <div className="mt-3">
-              <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
-                Codex activity
-              </div>
-              <div className="max-h-32 space-y-1 overflow-y-auto rounded-ph-sm border border-ph-border bg-ph-canvas p-2">
-                {result.query_events.slice(-6).map((event, index) => (
-                  <div key={`${event.elapsedMs}-${event.message}-${index}`} className="flex gap-2 font-mono text-code text-ph-body">
-                    <span className="shrink-0 text-ph-ash">{Math.floor(event.elapsedMs / 1000)}s</span>
-                    <span className="min-w-0 break-words">{event.message}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {result.file_paths.length > 0 && (
-            <div className="mt-3">
-              <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
-                Evidence files
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {result.file_paths.slice(0, 8).map((path) => (
-                  <span
-                    key={path}
-                    className="max-w-full truncate rounded-ph-sm border border-ph-border bg-ph-canvas px-2 py-0.5 font-mono text-code text-ph-body"
-                    title={path}
-                  >
-                    {path}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Highlighted ids list */}
-          <div className="mt-3 flex flex-wrap gap-1">
-            {result.highlight_ids.map((id) => (
+          <div className="flex flex-wrap gap-1">
+            {result.file_paths.slice(0, 8).map((path) => (
               <span
-                key={id}
-                className="rounded-ph-pill border border-ph-blue-soft bg-ph-blue-soft px-2 py-0.5 font-mono text-code text-ph-blue-teal"
+                key={path}
+                className="max-w-full truncate rounded-ph-sm border border-ph-border bg-ph-canvas px-2 py-0.5 font-mono text-code text-ph-body"
+                title={path}
               >
-                {id}
+                {path}
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Highlighted ids list */}
+      {result.highlight_ids.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1">
+          {result.highlight_ids.map((id) => (
+            <span
+              key={id}
+              className="rounded-ph-pill border border-ph-blue-soft bg-ph-blue-soft px-2 py-0.5 font-mono text-code text-ph-blue-teal"
+            >
+              {id}
+            </span>
+          ))}
         </div>
       )}
     </div>

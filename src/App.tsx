@@ -9,6 +9,7 @@ import { ReadingPanel } from './components/ReadingPanel';
 import { AskBox } from './components/AskBox';
 import { GeneratePanel } from './components/GeneratePanel';
 import { ArchitectureView } from './components/views/ArchitectureView';
+import { WikiView } from './components/views/WikiView';
 import { FilesView } from './components/views/FilesView';
 import { DependenciesView } from './components/views/DependenciesView';
 import { FlowsView } from './components/views/FlowsView';
@@ -20,12 +21,38 @@ import type { ViewId, ViewProps } from './components/views/viewContract';
 import { ModuleWiki } from './components/wiki/ModuleWiki';
 import { useWikiStack } from './hooks/useWikiStack';
 import { Onboarding } from './components/Onboarding';
+import { useGenerate, type GenerateStatus, type GenerateEventLogEntry } from './hooks/useGenerate';
+import { GENERATE_MODEL_OPTIONS, type GenerateModelOption } from './lib/generateOptions';
+
+/**
+ * Generate-on-Home contract — the extra props App passes to <Onboarding/> so a
+ * follow-up "Home" agent can render the full "generate for another repo" flow
+ * on the landing. Onboarding's own OnboardingProps does not yet declare these;
+ * App owns this file and the Home agent owns Onboarding.tsx. We keep every
+ * value strongly typed here (so the wiring is checked) and hand them to the
+ * component via a single typed merge. ALL fields are optional — the existing
+ * onGenerate() escape hatch keeps working if they are ignored.
+ */
+export interface OnboardingGenerateContract {
+  /** Start generation in place: persists settings, runs local Codex. */
+  onGenerateRepo: (repoPath: string, model: GenerateModel) => void;
+  generateStatus: GenerateStatus;
+  generateStage: string;
+  generateElapsedLabel: string;
+  generateError: string | null;
+  generateEvents: GenerateEventLogEntry[];
+  onCancelGenerate: () => void;
+  models: GenerateModelOption[];
+  defaultRepoPath: string;
+  defaultModel: GenerateModel;
+}
 
 // View registry — each entry maps a tab to a component that satisfies the
 // shared ViewProps contract (src/components/views/viewContract.ts). Wave B
 // fills the individual views; App never needs to change to add behaviour.
 const VIEWS: { id: ViewId; label: string; Component: (p: ViewProps) => JSX.Element }[] = [
   { id: 'architecture', label: 'Architecture', Component: ArchitectureView },
+  { id: 'wiki', label: 'Wiki', Component: WikiView },
   { id: 'files', label: 'Files', Component: FilesView },
   { id: 'dependencies', label: 'Dependencies', Component: DependenciesView },
   { id: 'flows', label: 'Flows', Component: FlowsView },
@@ -41,6 +68,27 @@ const QUERY_REPO_PATH_KEY = 'lh-query-repo-path';
 const QUERY_MODEL_KEY = 'lh-query-model';
 /** Persists across sessions: user has seen the landing and entered the app. */
 const LH_ENTERED_KEY = 'lh_entered';
+
+// ── Right sidebar (reading panel / ask) resize config ──────────────────
+const SIDEBAR_WIDTH_KEY = 'lh-sidebar-width';
+const SIDEBAR_MIN_WIDTH = 320;
+const SIDEBAR_MAX_WIDTH = 720;
+const SIDEBAR_DEFAULT_WIDTH = 400;
+
+/** The two stacked surfaces inside the resizable right sidebar. */
+type SidebarTab = 'reading' | 'ask';
+
+function readStoredSidebarWidth(): number {
+  try {
+    const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    if (Number.isFinite(raw) && raw > 0) {
+      return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, raw));
+    }
+  } catch {
+    /* ignore */
+  }
+  return SIDEBAR_DEFAULT_WIDTH;
+}
 
 function readStoredRepoPath(): string {
   try {
@@ -223,6 +271,20 @@ export default function App() {
     }
   }, []);
 
+  // App-level generate flow, exposed to the landing (Onboarding) so the full
+  // "generate for another repo" experience can live on Home. The in-app
+  // GeneratePanel keeps its own independent instance for the top bar.
+  const homeGenerate = useGenerate(handleGenerateDone);
+  // Stable wrapper matching the documented Onboarding contract: persist the
+  // chosen settings, then kick off generation.
+  const handleHomeGenerate = useCallback(
+    (repoPath: string, model: GenerateModel) => {
+      handleGenerateSettingsChange({ repoPath, model });
+      void homeGenerate.generate({ repoPath, model });
+    },
+    [handleGenerateSettingsChange, homeGenerate],
+  );
+
   const handleSelect = useCallback((id: string | null) => {
     setSelectedNodeId(id);
     setActiveSectionId(null);
@@ -250,6 +312,74 @@ export default function App() {
   const handleAskClear = useCallback(() => {
     setHighlightedNodeIds(new Set());
   }, []);
+
+  // ── Right sidebar: tabbed (reading ⇆ ask) + resizable ───────────────
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('reading');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(readStoredSidebarWidth);
+  const draggingRef = useRef(false);
+
+  // Persist the chosen width whenever it settles.
+  const persistSidebarWidth = useCallback((w: number) => {
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(Math.round(w)));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Drag-to-resize via the handle on the sidebar's LEFT edge. Dragging left
+  // (smaller clientX) widens the panel; clamped to min/max.
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      draggingRef.current = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const onMove = (ev: MouseEvent) => {
+        if (!draggingRef.current) return;
+        const next = Math.min(
+          SIDEBAR_MAX_WIDTH,
+          Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth - ev.clientX),
+        );
+        setSidebarWidth(next);
+      };
+
+      const onUp = () => {
+        if (!draggingRef.current) return;
+        draggingRef.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        setSidebarWidth((w) => {
+          persistSidebarWidth(w);
+          return w;
+        });
+      };
+
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [persistSidebarWidth],
+  );
+
+  // Open the sidebar on the Ask tab from the top-bar control.
+  const handleOpenAsk = useCallback(() => {
+    setSidebarOpen(true);
+    setSidebarTab('ask');
+  }, []);
+
+  // Answers should surface the conversation: switch the sidebar to Ask.
+  const handleAskAnswerWithFocus = useCallback(
+    (ids: Set<string>) => {
+      handleAskAnswer(ids);
+      setSidebarOpen(true);
+      setSidebarTab('ask');
+    },
+    [handleAskAnswer],
+  );
 
   // ── Wiki entry points ───────────────────────────────────────────────
   // The single openWiki entry point used everywhere (node cards, reading
@@ -375,16 +505,32 @@ export default function App() {
   // Show the Onboarding screen until the user explicitly enters.
   // We render it even before data is fully loaded — the component handles null.
   if (!entered) {
-    return (
-      <Onboarding
-        data={data}
-        onEnter={handleEnter}
-        onGenerate={() => {
-          setPendingGenerate(true);
-          handleEnter();
-        }}
-      />
-    );
+    // Build the generate-on-home contract (strongly typed) and hand it to
+    // Onboarding alongside its existing props. We merge via a typed cast: App
+    // owns this wiring; the Home agent owns OnboardingProps and will declare
+    // these fields there. See OnboardingGenerateContract above for the spec.
+    const generateContract: OnboardingGenerateContract = {
+      onGenerateRepo: handleHomeGenerate,
+      generateStatus: homeGenerate.status,
+      generateStage: homeGenerate.stage,
+      generateElapsedLabel: homeGenerate.elapsedLabel,
+      generateError: homeGenerate.error,
+      generateEvents: homeGenerate.events,
+      onCancelGenerate: homeGenerate.cancel,
+      models: GENERATE_MODEL_OPTIONS,
+      defaultRepoPath: queryRepoPath,
+      defaultModel: queryModel,
+    };
+    const onboardingProps = {
+      data,
+      onEnter: handleEnter,
+      onGenerate: () => {
+        setPendingGenerate(true);
+        handleEnter();
+      },
+      ...generateContract,
+    };
+    return <Onboarding {...(onboardingProps as React.ComponentProps<typeof Onboarding>)} />;
   }
 
   // ── Loading state ──────────────────────────────────────────────────
@@ -433,17 +579,22 @@ export default function App() {
           <span className="truncate font-mono text-code text-ph-body">{data.repo.name}</span>
         </div>
 
-        {/* Ask box — flexible right, cache-first logic intact */}
+        {/* Ask trigger — opens the conversational panel docked on the right.
+            The ask experience now lives in that thread (see sidebar below). */}
         <div className="ml-auto flex min-w-0 flex-1 justify-end">
-          <div className="w-full max-w-[540px]">
-            <AskBox
-              data={data}
-              repoPath={queryRepoPath}
-              model={queryModel}
-              onAnswer={handleAskAnswer}
-              onClear={handleAskClear}
-            />
-          </div>
+          <button
+            onClick={handleOpenAsk}
+            title="Ask the map"
+            className={[
+              'inline-flex h-9 items-center gap-2 rounded-ph border px-4 font-sans text-sm font-semibold transition-colors duration-75',
+              sidebarOpen && sidebarTab === 'ask'
+                ? 'border-ph-yellow-pressed bg-ph-yellow text-ph-ink'
+                : 'border-ph-border bg-ph-canvas text-ph-mute hover:border-ph-yellow hover:text-ph-ink',
+            ].join(' ')}
+          >
+            <span aria-hidden>💬</span>
+            <span>Ask the map</span>
+          </button>
         </div>
 
         <span className="hidden h-5 w-px bg-ph-border lg:block" />
@@ -556,17 +707,84 @@ export default function App() {
           )}
         </main>
 
-        {/* Reading panel — global for now (Wave A) */}
-        <div className="hidden min-h-0 w-[400px] shrink-0 border-l border-ph-border lg:flex lg:flex-col">
-          <ReadingPanel
-            data={data}
-            selectedNodeId={selectedNodeId}
-            activeSectionId={activeSectionId}
-            onActivateSection={handleActivateSection}
-            onHighlightNodes={handleHighlightNodes}
-            onOpenWiki={openWiki}
-          />
-        </div>
+        {/* ── Right sidebar — resizable, tabbed (Reading ⇆ Ask) ───────────
+            Reading panel + the conversational Ask thread coexist as tabs in a
+            single docked panel. A drag handle on the LEFT edge resizes it
+            (clamped, persisted to localStorage). When collapsed, a thin rail
+            lets the user re-open it. */}
+        {sidebarOpen ? (
+          <div
+            className="relative hidden min-h-0 shrink-0 border-l border-ph-border bg-ph-surface lg:flex lg:flex-col"
+            style={{ width: sidebarWidth }}
+          >
+            {/* Drag handle on the left edge */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize panel"
+              onMouseDown={handleResizeStart}
+              className="group absolute -left-1 top-0 z-20 h-full w-2 cursor-col-resize"
+            >
+              <div className="mx-auto h-full w-px bg-transparent transition-colors group-hover:bg-ph-yellow" />
+            </div>
+
+            {/* Tab strip + collapse */}
+            <div className="flex shrink-0 items-center gap-1 border-b border-ph-border px-2 py-1.5">
+              <SidebarTabButton
+                active={sidebarTab === 'reading'}
+                onClick={() => setSidebarTab('reading')}
+                label="Reading"
+              />
+              <SidebarTabButton
+                active={sidebarTab === 'ask'}
+                onClick={() => setSidebarTab('ask')}
+                label="Ask"
+              />
+              <button
+                onClick={() => setSidebarOpen(false)}
+                title="Collapse panel"
+                aria-label="Collapse panel"
+                className="ml-auto rounded-ph-sm px-2 py-1 font-sans text-label text-ph-ash transition-colors hover:text-ph-ink"
+              >
+                ⟩
+              </button>
+            </div>
+
+            {/* Tab bodies — keep both mounted so the Ask thread keeps its
+                history when switching to Reading and back. */}
+            <div className="min-h-0 flex-1">
+              <div className={sidebarTab === 'reading' ? 'h-full' : 'hidden'}>
+                <ReadingPanel
+                  data={data}
+                  selectedNodeId={selectedNodeId}
+                  activeSectionId={activeSectionId}
+                  onActivateSection={handleActivateSection}
+                  onHighlightNodes={handleHighlightNodes}
+                  onOpenWiki={openWiki}
+                />
+              </div>
+              <div className={sidebarTab === 'ask' ? 'h-full' : 'hidden'}>
+                <AskBox
+                  data={data}
+                  repoPath={queryRepoPath}
+                  model={queryModel}
+                  onAnswer={handleAskAnswerWithFocus}
+                  onClear={handleAskClear}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          // Collapsed rail — click to re-open.
+          <button
+            onClick={() => setSidebarOpen(true)}
+            title="Open panel"
+            aria-label="Open panel"
+            className="hidden w-8 shrink-0 items-start justify-center border-l border-ph-border bg-ph-surface py-3 text-ph-ash transition-colors hover:text-ph-ink lg:flex"
+          >
+            ⟨
+          </button>
+        )}
       </div>
 
       {/* ── Module wiki drawer — the rich deep-dive ─────────────────── */}
@@ -578,6 +796,31 @@ export default function App() {
         onShowOnMap={handleShowOnMap}
       />
     </div>
+  );
+}
+
+function SidebarTabButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-current={active ? 'true' : undefined}
+      className={[
+        'rounded-ph-sm px-3 py-1.5 font-sans text-heading-sm transition-colors',
+        active
+          ? 'bg-ph-surface-soft font-semibold text-ph-ink'
+          : 'text-ph-mute hover:text-ph-ink',
+      ].join(' ')}
+    >
+      {label}
+    </button>
   );
 }
 
