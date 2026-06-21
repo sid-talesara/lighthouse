@@ -124,32 +124,30 @@ function MiniStat({ additions, deletions }: { additions: number; deletions: numb
   );
 }
 
-// ─── Change-dot cluster (touched-node summary) ────────────────────────────────
+// ─── Touched-modules summary (labeled, not cryptic dots) ──────────────────────
 
-function ChangeDots({ pr }: { pr: PullRequest }) {
+function TouchedSummary({ pr }: { pr: PullRequest }) {
+  const count = pr.touched.length;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-      {pr.touched.slice(0, 6).map((t, i) => (
-        <span
-          key={`${t.node_id}-${i}`}
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: '50%',
-            background: CHANGE_COLOR[t.change],
-          }}
-        />
-      ))}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        {pr.touched.slice(0, 6).map((t, i) => (
+          <span
+            key={`${t.node_id}-${i}`}
+            title={t.change}
+            style={{ width: 7, height: 7, borderRadius: '50%', background: CHANGE_COLOR[t.change] }}
+          />
+        ))}
+      </span>
       <span
         style={{
-          marginLeft: 2,
-          fontSize: 10,
-          fontWeight: 700,
-          color: '#9B9C92',
-          fontFamily: '"Nunito", system-ui, sans-serif',
+          fontSize: 11,
+          fontWeight: 600,
+          color: '#6C6E63',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
         }}
       >
-        {pr.touched.length} touched
+        {count} module{count === 1 ? '' : 's'} changed
       </span>
     </span>
   );
@@ -281,8 +279,8 @@ function PrCard({ pr, now, selected, selectedNodeId, onSelect }: PrCardProps) {
         )}
       </div>
 
-      {/* Touched summary dots */}
-      <ChangeDots pr={pr} />
+      {/* Touched summary */}
+      <TouchedSummary pr={pr} />
     </button>
   );
 }

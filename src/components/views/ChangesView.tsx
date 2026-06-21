@@ -1,44 +1,138 @@
 /**
- * ChangesView — PR review, reimagined as BLAST-RADIUS IMPACT analysis.
+ * ChangesView — PR review as a LEGIBLE blast-radius impact analysis.
  *
  * GitHub's PR view tells you what *lines* changed. It cannot tell you what else
- * in the architecture is at risk. This view does:
+ * in the architecture is at risk. This view does, and — crucially — it leads
+ * with plain language so a first-time viewer gets the point in three seconds.
  *
- *   1. PR selector (left rail) — pick a PR.
- *   2. Blast-radius graph (center) — a focused, animated impact diagram. The
- *      touched modules pulse, then everything that transitively DEPENDS ON them
- *      lights up outward, ring by ring (see impact-util.ts + BlastRadiusGraph).
- *   3. Impact / risk summary (right) — a reviewer's at-a-glance card: modules
- *      touched, downstream affected, clusters spanned, +adds/-dels, risk signal.
+ * Reading order (top → bottom of the right pane):
+ *   1. PR header — id · status · author · date · title · summary.
+ *   2. Plain-English impact statement — "PR X changed N modules. M others
+ *      depend on the changes — review those. Risk: Medium."
+ *   3. Metric strip — touched / downstream / areas / lines.
+ *   4. "What changed" — the touched modules, grouped by feature area, with
+ *      their change type (added / modified / removed).
+ *   5. "What it affects" — the downstream dependents, each with how many hops
+ *      away it sits.
+ *   6. Impact graph — a fully-labeled diagram (column headers + legend) that
+ *      backs up the lists visually. Support, not the only thing.
  *
- * Clicking any node in the graph still pushes onSelectNode + onHighlightNodes so
- * "show on map" context persists — but the primary value is now in-view.
+ * Left rail is the PR picker. Clicking any module (in a list or the graph)
+ * mirrors the selection onto the Architecture map via onSelectNode +
+ * onHighlightNodes.
  *
- * PostHog light theme throughout: cream canvas, flat white cards, olive borders,
- * yellow accent, Nunito + IBM Plex Mono.
+ * PostHog light theme throughout.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ViewProps } from './viewContract';
-import type { PullRequest } from '../../types/lighthouse';
+import type { ChangeKind, PullRequest } from '../../types/lighthouse';
 import { PrTimeline } from './PrTimeline';
 import { BlastRadiusGraph } from './BlastRadiusGraph';
 import {
   computeBlastRadius,
+  groupTouchedByCluster,
+  plainEnglishImpact,
   riskRationale,
   type BlastRadius,
   type RiskLevel,
 } from './impact-util';
 
-// ─── Risk palette ─────────────────────────────────────────────────────────────
+// ─── Palettes ───────────────────────────────────────────────────────────────
 
-const RISK_STYLE: Record<RiskLevel, { fg: string; bg: string; label: string }> = {
-  low: { fg: '#2C8C66', bg: '#D9EDDF', label: 'Low risk' },
-  medium: { fg: '#92400E', bg: '#FEF3C7', label: 'Medium risk' },
-  high: { fg: '#CD4239', bg: '#F7D6D3', label: 'High risk' },
+const RISK_STYLE: Record<RiskLevel, { fg: string; bg: string; border: string; label: string }> = {
+  low: { fg: '#2C8C66', bg: '#D9EDDF', border: '#2C8C66', label: 'Low risk' },
+  medium: { fg: '#92400E', bg: '#FEF3C7', border: '#D9A441', label: 'Medium risk' },
+  high: { fg: '#CD4239', bg: '#F7D6D3', border: '#CD4239', label: 'High risk' },
 };
 
-// ─── Empty state ──────────────────────────────────────────────────────────────
+const CHANGE_STYLE: Record<ChangeKind, { fg: string; bg: string; label: string }> = {
+  added: { fg: '#2C8C66', bg: '#D9EDDF', label: 'Added' },
+  modified: { fg: '#946100', bg: '#FBEFD2', label: 'Modified' },
+  removed: { fg: '#CD4239', bg: '#F7D6D3', label: 'Removed' },
+};
+
+const FONT_UI = '"Nunito", system-ui, sans-serif';
+const FONT_BODY = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+const FONT_MONO = '"IBM Plex Mono", ui-monospace, monospace';
+
+// ─── Small shared atoms ─────────────────────────────────────────────────────
+
+function SectionHeader({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <h4
+        style={{
+          margin: 0,
+          fontSize: 13,
+          fontWeight: 800,
+          fontFamily: FONT_UI,
+          color: '#151515',
+          letterSpacing: '0.01em',
+        }}
+      >
+        {title}
+      </h4>
+      {hint && (
+        <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9B9C92', fontFamily: FONT_BODY, lineHeight: 1.4 }}>
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ChangeBadge({ change }: { change: ChangeKind }) {
+  const s = CHANGE_STYLE[change];
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '1px 8px',
+        borderRadius: 9999,
+        background: s.bg,
+        color: s.fg,
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        fontFamily: FONT_UI,
+        flexShrink: 0,
+      }}
+    >
+      {s.label}
+    </span>
+  );
+}
+
+function RiskPill({ risk }: { risk: RiskLevel }) {
+  const s = RISK_STYLE[risk];
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '3px 10px',
+        borderRadius: 9999,
+        background: s.bg,
+        border: `1px solid ${s.border}`,
+        color: s.fg,
+        fontSize: 11,
+        fontWeight: 800,
+        letterSpacing: '0.02em',
+        fontFamily: FONT_UI,
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: s.fg }} />
+      {s.label}
+    </span>
+  );
+}
+
+// ─── Empty states ────────────────────────────────────────────────────────────
 
 function NoDataState() {
   return (
@@ -54,30 +148,12 @@ function NoDataState() {
         }}
       >
         <div style={{ fontSize: 32, marginBottom: 12 }}>🔀</div>
-        <h2
-          style={{
-            fontSize: 18,
-            fontWeight: 700,
-            fontFamily: '"Nunito", system-ui, sans-serif',
-            color: '#151515',
-            margin: '0 0 8px',
-          }}
-        >
+        <h2 style={{ fontSize: 18, fontWeight: 700, fontFamily: FONT_UI, color: '#151515', margin: '0 0 8px' }}>
           No change history yet
         </h2>
-        <p
-          style={{
-            fontSize: 14,
-            color: '#6C6E63',
-            fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-            margin: 0,
-            lineHeight: 1.5,
-          }}
-        >
-          Add{' '}
-          <code style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 12 }}>pullRequests</code>{' '}
-          to <code style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 12 }}>data.json</code>{' '}
-          to review their blast radius here.
+        <p style={{ fontSize: 14, color: '#6C6E63', fontFamily: FONT_BODY, margin: 0, lineHeight: 1.5 }}>
+          Add <code style={{ fontFamily: FONT_MONO, fontSize: 12 }}>pullRequests</code> to{' '}
+          <code style={{ fontFamily: FONT_MONO, fontSize: 12 }}>data.json</code> to review their blast radius here.
         </p>
       </div>
     </div>
@@ -86,17 +162,8 @@ function NoDataState() {
 
 function NoSelectionState() {
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 40,
-        textAlign: 'center',
-      }}
-    >
-      <div style={{ maxWidth: 360 }}>
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, textAlign: 'center' }}>
+      <div style={{ maxWidth: 380 }}>
         <div
           style={{
             margin: '0 auto 16px',
@@ -112,28 +179,12 @@ function NoSelectionState() {
         >
           <RippleGlyph />
         </div>
-        <h3
-          style={{
-            fontSize: 16,
-            fontWeight: 800,
-            fontFamily: '"Nunito", system-ui, sans-serif',
-            color: '#151515',
-            margin: '0 0 8px',
-          }}
-        >
-          Pick a PR to see its blast radius
+        <h3 style={{ fontSize: 16, fontWeight: 800, fontFamily: FONT_UI, color: '#151515', margin: '0 0 8px' }}>
+          Pick a pull request to review its impact
         </h3>
-        <p
-          style={{
-            fontSize: 13,
-            color: '#6C6E63',
-            lineHeight: 1.55,
-            margin: 0,
-            fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-          }}
-        >
-          We trace every module that transitively <strong>depends on</strong> what the PR
-          touched — the impact GitHub can&rsquo;t show you — and rank the risk.
+        <p style={{ fontSize: 13, color: '#6C6E63', lineHeight: 1.55, margin: 0, fontFamily: FONT_BODY }}>
+          For any PR, we explain in plain English what it changed and trace every module that{' '}
+          <strong>depends on</strong> those changes — so you know what to re-check before it ships.
         </p>
       </div>
     </div>
@@ -150,25 +201,17 @@ function RippleGlyph() {
   );
 }
 
-// ─── Summary metric ───────────────────────────────────────────────────────────
+// ─── Metric strip ─────────────────────────────────────────────────────────────
 
-function Metric({
-  value,
-  label,
-  accent,
-}: {
-  value: string | number;
-  label: string;
-  accent?: string;
-}) {
+function Metric({ value, label, accent }: { value: string | number; label: string; accent?: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <span
         style={{
-          fontSize: 26,
+          fontSize: 24,
           fontWeight: 800,
           lineHeight: 1,
-          fontFamily: '"Nunito", system-ui, sans-serif',
+          fontFamily: FONT_UI,
           color: accent ?? '#151515',
           fontVariantNumeric: 'tabular-nums',
         }}
@@ -183,7 +226,7 @@ function Metric({
           letterSpacing: '0.05em',
           textTransform: 'uppercase',
           color: '#9B9C92',
-          fontFamily: '"Nunito", system-ui, sans-serif',
+          fontFamily: FONT_UI,
         }}
       >
         {label}
@@ -192,258 +235,321 @@ function Metric({
   );
 }
 
-// ─── Risk gauge ───────────────────────────────────────────────────────────────
-
-function RiskGauge({ blast }: { blast: BlastRadius }) {
-  const s = RISK_STYLE[blast.risk];
+function MetricStrip({ blast }: { blast: BlastRadius }) {
   return (
     <div
       style={{
-        border: `1px solid ${s.fg}`,
-        background: s.bg,
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gap: 12,
+        padding: '14px 18px',
+        background: '#FFFFFF',
+        border: '1px solid #BFC1B7',
         borderRadius: 6,
-        padding: '12px 14px',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 800,
-            color: s.fg,
-            fontFamily: '"Nunito", system-ui, sans-serif',
-            letterSpacing: '0.02em',
-          }}
-        >
-          {s.label.toUpperCase()}
-        </span>
-        <span
-          style={{
-            marginLeft: 'auto',
-            fontSize: 11,
-            fontWeight: 700,
-            color: s.fg,
-            fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-          }}
-        >
-          {blast.riskScore}/100
-        </span>
-      </div>
-      {/* Score bar */}
+      <Metric value={blast.touched.length} label="modules changed" />
+      <Metric
+        value={blast.affected.length}
+        label="depend on it"
+        accent={blast.affected.length > 0 ? '#DD9001' : '#151515'}
+      />
+      <Metric value={blast.clustersSpanned.length} label="feature areas" />
+      <Metric value={`+${blast.additions}/-${blast.deletions}`} label="lines changed" />
+    </div>
+  );
+}
+
+// ─── Plain-English impact banner ──────────────────────────────────────────────
+
+function ImpactStatement({ blast }: { blast: BlastRadius }) {
+  const impact = plainEnglishImpact(blast);
+  const accent = blast.affected.length > 0 ? '#DD9001' : '#2C8C66';
+  return (
+    <div
+      style={{
+        background: '#FFFFFF',
+        border: '1px solid #BFC1B7',
+        borderLeft: `4px solid ${accent}`,
+        borderRadius: 6,
+        padding: '16px 18px',
+      }}
+    >
       <div
         style={{
-          height: 6,
-          borderRadius: 3,
-          background: 'rgba(21,21,21,0.08)',
-          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
           marginBottom: 8,
         }}
       >
-        <div
+        <span
           style={{
-            width: `${blast.riskScore}%`,
-            height: '100%',
-            background: s.fg,
-            borderRadius: 3,
-            transition: 'width 500ms cubic-bezier(0.22,1,0.36,1)',
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '0.07em',
+            textTransform: 'uppercase',
+            color: '#9B9C92',
+            fontFamily: FONT_UI,
           }}
-        />
+        >
+          In plain English
+        </span>
+        <span style={{ marginLeft: 'auto' }}>
+          <RiskPill risk={impact.risk} />
+        </span>
       </div>
-      <p
-        style={{
-          margin: 0,
-          fontSize: 12,
-          lineHeight: 1.45,
-          color: '#4D4F46',
-          fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-        }}
-      >
-        {riskRationale(blast)}
+      <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: '#151515', fontFamily: FONT_BODY }}>
+        <strong style={{ fontWeight: 700 }}>{impact.lead}</strong>{' '}
+        <span style={{ color: '#4D4F46' }}>{impact.consequence}</span>
+      </p>
+      <p style={{ margin: '8px 0 0', fontSize: 12.5, color: '#6C6E63', fontFamily: FONT_BODY, lineHeight: 1.45 }}>
+        Why this risk level: {riskRationale(blast)}
       </p>
     </div>
   );
 }
 
-// ─── Summary panel ────────────────────────────────────────────────────────────
+// ─── "What changed" — touched modules grouped by feature area ─────────────────
 
-function ImpactSummary({
+function WhatChanged({
   blast,
+  clusterLabelMap,
+  selectedNodeId,
   onPick,
 }: {
   blast: BlastRadius;
+  clusterLabelMap: Map<string, string>;
+  selectedNodeId: string | null;
   onPick: (id: string) => void;
 }) {
-  const sectionLabel = (t: string) => (
-    <div
-      style={{
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        color: '#9B9C92',
-        fontFamily: '"Nunito", system-ui, sans-serif',
-        marginBottom: 8,
-      }}
-    >
-      {t}
-    </div>
-  );
-
+  const groups = useMemo(() => groupTouchedByCluster(blast, clusterLabelMap), [blast, clusterLabelMap]);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Metric row */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 16,
-          padding: '14px 16px',
-          background: '#FFFFFF',
-          border: '1px solid #BFC1B7',
-          borderRadius: 6,
-        }}
-      >
-        <Metric value={blast.touched.length} label="modules touched" />
-        <Metric
-          value={blast.affected.length}
-          label="downstream affected"
-          accent={blast.affected.length > 0 ? '#DD9001' : '#151515'}
-        />
-        <Metric value={blast.clustersSpanned.length} label="areas spanned" />
-        <Metric value={`+${blast.additions}/-${blast.deletions}`} label="lines changed" />
-      </div>
-
-      {/* Risk */}
-      <RiskGauge blast={blast} />
-
-      {/* Areas spanned */}
-      {blast.clusterLabels.length > 0 && (
-        <div>
-          {sectionLabel('Feature areas spanned')}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {blast.clusterLabels.map((c) => (
-              <span
-                key={c.id}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '3px 10px',
-                  borderRadius: 9999,
-                  background: '#E5E7E0',
-                  border: '1px solid #DCDFD2',
-                  fontSize: 11.5,
-                  fontWeight: 600,
-                  color: '#4D4F46',
-                  fontFamily: '"Nunito", system-ui, sans-serif',
-                }}
-              >
-                {c.label}
-              </span>
-            ))}
+    <section>
+      <SectionHeader
+        title="What changed"
+        hint="The modules this PR edited, grouped by feature area. Color = the kind of change."
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {groups.map((g) => (
+          <div key={g.clusterId ?? '__none__'}>
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: '#9B9C92',
+                fontFamily: FONT_UI,
+                marginBottom: 6,
+              }}
+            >
+              {g.clusterLabel}
+            </div>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {g.items.map((t) => (
+                <li key={t.id}>
+                  <ModuleRow
+                    label={t.label}
+                    selected={selectedNodeId === t.id}
+                    onClick={() => onPick(t.id)}
+                    trailing={<ChangeBadge change={t.change} />}
+                  />
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-      )}
+        ))}
+      </div>
+    </section>
+  );
+}
 
-      {/* Downstream list */}
-      <div>
-        {sectionLabel(
-          blast.affected.length > 0
-            ? `At-risk dependents (${blast.affected.length})`
-            : 'At-risk dependents',
-        )}
-        {blast.affected.length === 0 ? (
-          <p
-            style={{
-              margin: 0,
-              fontSize: 12.5,
-              lineHeight: 1.5,
-              color: '#6C6E63',
-              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-            }}
-          >
-            Nothing in the dependency map relies on the touched module
-            {blast.touched.length > 1 ? 's' : ''}. This change is self-contained.
-          </p>
-        ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {blast.affected.map((a) => (
-              <li key={a.id}>
-                <button
-                  onClick={() => onPick(a.id)}
-                  style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '7px 10px',
-                    background: '#FFFFFF',
-                    border: '1px solid #DCDFD2',
-                    borderRadius: 6,
-                    font: 'inherit',
-                    transition: 'border-color 120ms ease-out',
-                  }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = '#9B9C92')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.borderColor = '#DCDFD2')}
-                >
+// ─── "What it affects" — downstream dependents ────────────────────────────────
+
+function WhatItAffects({
+  blast,
+  selectedNodeId,
+  onPick,
+}: {
+  blast: BlastRadius;
+  selectedNodeId: string | null;
+  onPick: (id: string) => void;
+}) {
+  return (
+    <section>
+      <SectionHeader
+        title="What it affects"
+        hint="Other modules that depend on what changed — review these for breakage. The hop count is how many dependency steps away each one sits."
+      />
+      {blast.affected.length === 0 ? (
+        <div
+          style={{
+            border: '1px dashed #BFC1B7',
+            borderRadius: 6,
+            padding: '14px 16px',
+            background: '#FBFBF9',
+            fontSize: 13,
+            lineHeight: 1.5,
+            color: '#4D4F46',
+            fontFamily: FONT_BODY,
+          }}
+        >
+          Nothing in the dependency map relies on the changed module
+          {blast.touched.length > 1 ? 's' : ''}.{' '}
+          <strong>This change is self-contained</strong> — no downstream ripple to review.
+        </div>
+      ) : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {blast.affected.map((a) => (
+            <li key={a.id}>
+              <ModuleRow
+                label={a.label}
+                selected={selectedNodeId === a.id}
+                onClick={() => onPick(a.id)}
+                trailing={
                   <span
                     style={{
-                      fontSize: 12.5,
-                      fontWeight: 600,
-                      color: '#151515',
-                      fontFamily: '"Nunito", system-ui, sans-serif',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {a.label}
-                  </span>
-                  <span
-                    style={{
-                      marginLeft: 'auto',
-                      flexShrink: 0,
-                      fontSize: 9.5,
+                      fontSize: 10,
                       fontWeight: 700,
                       letterSpacing: '0.04em',
-                      color: '#9B9C92',
-                      fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
+                      color: a.hops === 1 ? '#DD9001' : '#9B9C92',
+                      fontFamily: FONT_MONO,
+                      flexShrink: 0,
                     }}
                   >
-                    {a.hops} HOP{a.hops > 1 ? 'S' : ''}
+                    {a.hops} HOP{a.hops > 1 ? 'S' : ''} AWAY
                   </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+                }
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// ─── Shared clickable module row ──────────────────────────────────────────────
+
+function ModuleRow({
+  label,
+  selected,
+  onClick,
+  trailing,
+}: {
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+  trailing: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '8px 12px',
+        background: selected ? 'rgba(247,165,1,0.07)' : '#FFFFFF',
+        border: selected ? '1px solid #F7A501' : '1px solid #DCDFD2',
+        borderRadius: 6,
+        font: 'inherit',
+        transition: 'border-color 120ms ease-out, background 120ms ease-out',
+      }}
+      onMouseEnter={(e) => {
+        if (!selected) (e.currentTarget as HTMLButtonElement).style.borderColor = '#9B9C92';
+      }}
+      onMouseLeave={(e) => {
+        if (!selected) (e.currentTarget as HTMLButtonElement).style.borderColor = '#DCDFD2';
+      }}
+    >
+      <span
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          color: '#151515',
+          fontFamily: FONT_UI,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center' }}>{trailing}</span>
+    </button>
+  );
+}
+
+// ─── Selected PR header ───────────────────────────────────────────────────────
+
+function PrHeader({ blast, now }: { blast: BlastRadius; now: Date }) {
+  const dateStr = new Date(blast.pr.date).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  void now;
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <code
+          style={{
+            fontSize: 11,
+            fontFamily: FONT_MONO,
+            color: '#6C6E63',
+            background: '#E5E7E0',
+            borderRadius: 4,
+            padding: '1px 6px',
+          }}
+        >
+          {blast.pr.id}
+        </code>
+        <span style={{ fontSize: 12, color: '#6C6E63', fontFamily: FONT_BODY }}>{blast.pr.author}</span>
+        <span style={{ fontSize: 12, color: '#9B9C92', fontFamily: FONT_BODY }}>· {dateStr}</span>
       </div>
+      <h3
+        style={{
+          fontSize: 19,
+          fontWeight: 800,
+          fontFamily: FONT_UI,
+          color: '#151515',
+          margin: '0 0 6px',
+          lineHeight: 1.3,
+        }}
+      >
+        {blast.pr.title}
+      </h3>
+      <p style={{ fontSize: 13, lineHeight: 1.5, color: '#4D4F46', margin: 0, fontFamily: FONT_BODY }}>
+        {blast.pr.summary}
+      </p>
     </div>
   );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ChangesView({
-  data,
-  selectedNodeId,
-  onSelectNode,
-  onHighlightNodes,
-}: ViewProps) {
+export function ChangesView({ data, selectedNodeId, onSelectNode, onHighlightNodes }: ViewProps) {
   const prs = useMemo(() => data.pullRequests ?? [], [data.pullRequests]);
+
+  const clusterLabelMap = useMemo(
+    () => new Map(data.clusters.map((c) => [c.id, c.label])),
+    [data.clusters],
+  );
 
   // Anchor relative dates to the newest PR so demo copy stays stable.
   const now = useMemo(() => {
     if (prs.length === 0) return new Date();
-    const newest = prs.reduce(
-      (max, p) => (new Date(p.date) > new Date(max) ? p.date : max),
-      prs[0].date,
-    );
+    const newest = prs.reduce((max, p) => (new Date(p.date) > new Date(max) ? p.date : max), prs[0].date);
     return new Date(newest);
   }, [prs]);
 
-  // Newest-first selector ordering.
   const prsSorted = useMemo(
     () => [...prs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
     [prs],
@@ -451,44 +557,29 @@ export function ChangesView({
 
   const [selectedPrId, setSelectedPrId] = useState<string | null>(null);
 
-  const selectedPr = useMemo(
-    () => prs.find((p) => p.id === selectedPrId) ?? null,
-    [prs, selectedPrId],
-  );
+  const selectedPr = useMemo(() => prs.find((p) => p.id === selectedPrId) ?? null, [prs, selectedPrId]);
 
   const blast = useMemo<BlastRadius | null>(
-    () =>
-      selectedPr
-        ? computeBlastRadius(selectedPr, data.edges, data.nodes, data.clusters)
-        : null,
+    () => (selectedPr ? computeBlastRadius(selectedPr, data.edges, data.nodes, data.clusters) : null),
     [selectedPr, data.edges, data.nodes, data.clusters],
   );
 
-  // ── PR select → compute blast radius + push "show on map" context ──────────
   const handleSelectPr = useCallback(
     (pr: PullRequest) => {
       setSelectedPrId(pr.id);
       const b = computeBlastRadius(pr, data.edges, data.nodes, data.clusters);
-      // Highlight touched + affected so the Architecture map mirrors the ripple.
-      const ids = new Set<string>([
-        ...b.touched.map((t) => t.id),
-        ...b.affected.map((a) => a.id),
-      ]);
+      const ids = new Set<string>([...b.touched.map((t) => t.id), ...b.affected.map((a) => a.id)]);
       onHighlightNodes(ids);
       onSelectNode(pr.touched[0]?.node_id ?? null);
     },
     [data.edges, data.nodes, data.clusters, onHighlightNodes, onSelectNode],
   );
 
-  // ── Click a node in the graph / summary → select + persist highlight ───────
   const handlePickNode = useCallback(
     (id: string) => {
       onSelectNode(id);
       if (blast) {
-        const ids = new Set<string>([
-          ...blast.touched.map((t) => t.id),
-          ...blast.affected.map((a) => a.id),
-        ]);
+        const ids = new Set<string>([...blast.touched.map((t) => t.id), ...blast.affected.map((a) => a.id)]);
         ids.add(id);
         onHighlightNodes(ids);
       } else {
@@ -510,29 +601,11 @@ export function ChangesView({
   const draft = prs.filter((p) => p.status === 'draft').length;
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        background: '#EEEFE9',
-        overflow: 'hidden',
-      }}
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#EEEFE9', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ background: '#FFFFFF', borderBottom: '1px solid #BFC1B7', padding: '14px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
-          <h2
-            style={{
-              fontSize: 16,
-              fontWeight: 700,
-              fontFamily: '"Nunito", system-ui, sans-serif',
-              color: '#151515',
-              margin: 0,
-            }}
-          >
-            Changes
-          </h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, fontFamily: FONT_UI, color: '#151515', margin: 0 }}>Changes</h2>
           <span
             style={{
               fontSize: 11,
@@ -540,27 +613,20 @@ export function ChangesView({
               letterSpacing: '0.04em',
               textTransform: 'uppercase',
               color: '#9B9C92',
-              fontFamily: '"Nunito", system-ui, sans-serif',
+              fontFamily: FONT_UI,
             }}
           >
-            blast-radius impact review
+            pull-request impact review
           </span>
         </div>
-        <p
-          style={{
-            fontSize: 13,
-            color: '#4D4F46',
-            margin: 0,
-            fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-          }}
-        >
+        <p style={{ fontSize: 13, color: '#4D4F46', margin: 0, fontFamily: FONT_BODY }}>
           {prs.length} pull requests · {merged} merged
           {open > 0 ? ` · ${open} open` : ''}
-          {draft > 0 ? ` · ${draft} draft` : ''} — pick one to trace what it puts at risk
+          {draft > 0 ? ` · ${draft} draft` : ''} — pick one to see, in plain English, what it changed and what it could break.
         </p>
       </div>
 
-      {/* Body: selector | impact */}
+      {/* Body: PR list | impact */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Left rail: PR selector */}
         <div
@@ -580,7 +646,7 @@ export function ChangesView({
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
               color: '#9B9C92',
-              fontFamily: '"Nunito", system-ui, sans-serif',
+              fontFamily: FONT_UI,
               marginBottom: 10,
               paddingLeft: 2,
             }}
@@ -603,7 +669,7 @@ export function ChangesView({
           ) : (
             <div
               style={{
-                maxWidth: 1080,
+                maxWidth: 880,
                 margin: '0 auto',
                 padding: '20px 24px 32px',
                 display: 'flex',
@@ -611,116 +677,46 @@ export function ChangesView({
                 gap: 18,
               }}
             >
-              {/* Selected PR header */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <code
-                    style={{
-                      fontSize: 11,
-                      fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-                      color: '#6C6E63',
-                      background: '#E5E7E0',
-                      borderRadius: 4,
-                      padding: '1px 6px',
-                    }}
-                  >
-                    {blast.pr.id}
-                  </code>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      color: '#9B9C92',
-                      fontFamily: 'system-ui, -apple-system, sans-serif',
-                    }}
-                  >
-                    {blast.pr.author}
-                  </span>
-                </div>
-                <h3
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 800,
-                    fontFamily: '"Nunito", system-ui, sans-serif',
-                    color: '#151515',
-                    margin: '0 0 6px',
-                    lineHeight: 1.3,
-                  }}
-                >
-                  {blast.pr.title}
-                </h3>
-                <p
-                  style={{
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    color: '#4D4F46',
-                    margin: 0,
-                    fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-                  }}
-                >
-                  {blast.pr.summary}
-                </p>
-              </div>
+              {/* 1. PR header */}
+              <PrHeader blast={blast} now={now} />
 
-              {/* Two-column: graph + summary */}
+              {/* 2. Plain-English impact statement */}
+              <ImpactStatement blast={blast} />
+
+              {/* 3. Metric strip */}
+              <MetricStrip blast={blast} />
+
+              {/* 4 + 5. What changed / What it affects */}
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'minmax(0, 1fr) 320px',
-                  gap: 18,
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: 24,
                   alignItems: 'start',
                 }}
               >
-                {/* Impact graph */}
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      color: '#9B9C92',
-                      fontFamily: '"Nunito", system-ui, sans-serif',
-                      marginBottom: 8,
-                    }}
-                  >
-                    Impact graph
-                    <span style={{ color: '#BFC1B7', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
-                      change ripples right → through everything that depends on it
-                    </span>
-                  </div>
-                  <BlastRadiusGraph
-                    blast={blast}
-                    selectedNodeId={selectedNodeId}
-                    onPick={handlePickNode}
-                    replayKey={blast.pr.id}
-                  />
-                  {/* Legend */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 14,
-                      marginTop: 10,
-                      fontSize: 11,
-                      color: '#6C6E63',
-                      fontFamily: 'system-ui, -apple-system, sans-serif',
-                    }}
-                  >
-                    <LegendDot color="#2C8C66" label="added" />
-                    <LegendDot color="#DC9300" label="modified" />
-                    <LegendDot color="#CD4239" label="removed" />
-                    <LegendDot color="#9B9C92" label="affected dependent" />
-                    <span style={{ marginLeft: 'auto', color: '#9B9C92' }}>
-                      click any node to show it on the map ↗
-                    </span>
-                  </div>
-                </div>
-
-                {/* Summary */}
-                <div style={{ minWidth: 0 }}>
-                  <ImpactSummary blast={blast} onPick={handlePickNode} />
-                </div>
+                <WhatChanged
+                  blast={blast}
+                  clusterLabelMap={clusterLabelMap}
+                  selectedNodeId={selectedNodeId}
+                  onPick={handlePickNode}
+                />
+                <WhatItAffects blast={blast} selectedNodeId={selectedNodeId} onPick={handlePickNode} />
               </div>
+
+              {/* 6. Visual graph — labeled support */}
+              <section>
+                <SectionHeader
+                  title="Impact at a glance"
+                  hint="The same information as a diagram: the change on the left, everything that depends on it fanning out to the right."
+                />
+                <BlastRadiusGraph
+                  blast={blast}
+                  selectedNodeId={selectedNodeId}
+                  onPick={handlePickNode}
+                  replayKey={blast.pr.id}
+                />
+              </section>
             </div>
           )}
         </div>
@@ -733,14 +729,5 @@ export function ChangesView({
         }
       `}</style>
     </div>
-  );
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ width: 9, height: 9, borderRadius: '50%', background: color }} />
-      {label}
-    </span>
   );
 }

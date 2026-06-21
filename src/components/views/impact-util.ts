@@ -276,3 +276,70 @@ export function riskRationale(b: BlastRadius): string {
     areas === 1 ? '' : 's'
   }${depth}.`;
 }
+
+// ── Plain-English impact statement ──────────────────────────────────────────
+// The 3-second takeaway shown at the top of the impact panel. Written so a
+// first-time viewer immediately understands what the PR did and what to watch.
+
+const STATUS_WORD: Record<PullRequest['status'], string> = {
+  merged: 'merged',
+  open: 'open',
+  draft: 'draft',
+};
+
+const RISK_WORD: Record<RiskLevel, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+};
+
+/**
+ * Build the plain-language impact statement for a PR's blast radius.
+ * Returns sentence fragments the view can style independently, plus a single
+ * flat `text` for screen readers / fallbacks.
+ */
+export function plainEnglishImpact(b: BlastRadius): {
+  lead: string;
+  consequence: string;
+  risk: RiskLevel;
+  text: string;
+} {
+  const touchedCount = b.touched.length;
+  const moduleWord = touchedCount === 1 ? 'module' : 'modules';
+  const status = STATUS_WORD[b.pr.status];
+
+  const lead = `${b.pr.id} "${b.pr.title}" (${status}, by ${b.pr.author}) changed ${touchedCount} ${moduleWord}.`;
+
+  let consequence: string;
+  if (b.affected.length === 0) {
+    consequence = b.touched.some((t) => t.change === 'removed')
+      ? 'Nothing in the map depends on what changed, but it removes code — double-check it is truly unused.'
+      : 'Nothing else in the map depends on what changed, so this is a self-contained change.';
+  } else {
+    const depWord = b.affected.length === 1 ? 'module depends' : 'modules depend';
+    const areas = b.clustersSpanned.length;
+    const areaPhrase = areas > 1 ? ` across ${areas} feature areas` : '';
+    consequence = `${b.affected.length} other ${depWord} on what changed${areaPhrase} — review those for breakage.`;
+  }
+
+  const text = `${lead} ${consequence} Risk: ${RISK_WORD[b.risk]}.`;
+  return { lead, consequence, risk: b.risk, text };
+}
+
+/** Touched nodes grouped by their owning cluster (for the "What changed" list). */
+export function groupTouchedByCluster(
+  b: BlastRadius,
+  clusterLabelMap: Map<string, string>,
+): { clusterId: string | null; clusterLabel: string; items: TouchedNode[] }[] {
+  const groups = new Map<string, TouchedNode[]>();
+  for (const t of b.touched) {
+    const key = t.clusterId ?? '__none__';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(t);
+  }
+  return [...groups.entries()].map(([key, items]) => ({
+    clusterId: key === '__none__' ? null : key,
+    clusterLabel: key === '__none__' ? 'Other' : clusterLabelMap.get(key) ?? key,
+    items,
+  }));
+}
