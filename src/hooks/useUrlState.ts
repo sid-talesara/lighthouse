@@ -22,6 +22,7 @@ import type { ViewId } from '../components/views/viewContract';
 
 const VALID_VIEWS: ViewId[] = [
   'architecture',
+  'wiki',
   'files',
   'dependencies',
   'flows',
