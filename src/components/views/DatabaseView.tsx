@@ -22,6 +22,7 @@ import type { DbTable, LighthouseNode } from '../../types/lighthouse';
 import { ErDiagram } from './ErDiagram';
 import { buildGroups, GroupCard } from './DbGroups';
 import { CodeViewer } from '../CodeViewer';
+import { MigrationsTimeline } from './MigrationsTimeline';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -643,6 +644,7 @@ function OverviewMode({
 // ─── DatabaseView ─────────────────────────────────────────────────────────────
 
 type ViewMode = 'overview' | 'er';
+type DbTab = 'schema' | 'migrations';
 
 export function DatabaseView({
   data,
@@ -654,11 +656,15 @@ export function DatabaseView({
   const tables = useMemo(() => data.dbTables ?? [], [data.dbTables]);
   const nodes = useMemo(() => data.nodes ?? [], [data.nodes]);
   const clusters = useMemo(() => data.clusters ?? [], [data.clusters]);
+  const migrations = useMemo(() => data.dbMigrations ?? [], [data.dbMigrations]);
 
   const accentMap = useMemo(
     () => buildModuleAccentMap(nodes),
     [nodes],
   );
+
+  // ── top-level tab: schema vs migrations ───────────────────────────────────
+  const [dbTab, setDbTab] = useState<DbTab>('schema');
 
   // ── search ────────────────────────────────────────────────────────────────
   const [filterText, setFilterText] = useState('');
@@ -813,71 +819,23 @@ export function DatabaseView({
           >
             {totalFkCount} FK
           </span>
-        </div>
-
-        {/* search box */}
-        <div style={{ flex: 1, minWidth: 160, position: 'relative' }}>
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 13 13"
-            fill="none"
-            style={{
-              position: 'absolute',
-              left: 9,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: '#9B9C92',
-              pointerEvents: 'none',
-            }}
-          >
-            <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M9 9l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Filter tables or columns…"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            style={{
-              width: '100%',
-              height: 30,
-              paddingLeft: 28,
-              paddingRight: filterText ? 28 : 10,
-              background: '#EEEFE9',
-              border: '1px solid #BFC1B7',
-              borderRadius: 6,
-              fontFamily: 'system-ui, -apple-system, sans-serif',
-              fontSize: 12,
-              color: '#23251D',
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
-          />
-          {filterText && (
-            <button
-              onClick={() => setFilterText('')}
+          {migrations.length > 0 && (
+            <span
               style={{
-                position: 'absolute',
-                right: 7,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
+                fontSize: 10,
+                fontWeight: 600,
                 color: '#9B9C92',
-                fontSize: 14,
-                padding: 0,
-                lineHeight: 1,
+                background: '#E5E7E0',
+                borderRadius: 4,
+                padding: '2px 7px',
               }}
-              aria-label="Clear search"
             >
-              ×
-            </button>
+              {migrations.length} migrations
+            </span>
           )}
         </div>
 
-        {/* view mode toggle */}
+        {/* Schema / Migrations tab toggle */}
         <div
           style={{
             display: 'flex',
@@ -887,99 +845,206 @@ export function DatabaseView({
             flexShrink: 0,
           }}
         >
-          {(['overview', 'er'] as ViewMode[]).map((mode) => (
+          {(['schema', 'migrations'] as DbTab[]).map((tab) => (
             <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
+              key={tab}
+              onClick={() => setDbTab(tab)}
               style={{
                 padding: '5px 12px',
-                background: viewMode === mode ? '#F7A501' : '#FFFFFF',
+                background: dbTab === tab ? '#23251D' : '#FFFFFF',
                 border: 'none',
-                borderRight: mode === 'overview' ? '1px solid #BFC1B7' : 'none',
+                borderRight: tab === 'schema' ? '1px solid #BFC1B7' : 'none',
                 cursor: 'pointer',
                 fontFamily: '"Nunito", system-ui, sans-serif',
                 fontSize: 11,
                 fontWeight: 600,
-                color: viewMode === mode ? '#23251D' : '#6C6E63',
+                color: dbTab === tab ? '#EEEFE9' : '#6C6E63',
+                transition: 'background 120ms ease-out, color 120ms ease-out',
               }}
             >
-              {mode === 'overview' ? 'Groups' : 'ER Diagram'}
+              {tab === 'schema' ? 'Schema' : 'Migrations'}
             </button>
           ))}
         </div>
+
+        {/* Schema view-mode toggle — only shown in schema tab */}
+        {dbTab === 'schema' && (
+          <>
+            {/* search box */}
+            <div style={{ flex: 1, minWidth: 160, position: 'relative' }}>
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 13 13"
+                fill="none"
+                style={{
+                  position: 'absolute',
+                  left: 9,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: '#9B9C92',
+                  pointerEvents: 'none',
+                }}
+              >
+                <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M9 9l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Filter tables or columns…"
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: 30,
+                  paddingLeft: 28,
+                  paddingRight: filterText ? 28 : 10,
+                  background: '#EEEFE9',
+                  border: '1px solid #BFC1B7',
+                  borderRadius: 6,
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  fontSize: 12,
+                  color: '#23251D',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              {filterText && (
+                <button
+                  onClick={() => setFilterText('')}
+                  style={{
+                    position: 'absolute',
+                    right: 7,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#9B9C92',
+                    fontSize: 14,
+                    padding: 0,
+                    lineHeight: 1,
+                  }}
+                  aria-label="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            {/* view mode toggle */}
+            <div
+              style={{
+                display: 'flex',
+                border: '1px solid #BFC1B7',
+                borderRadius: 6,
+                overflow: 'hidden',
+                flexShrink: 0,
+              }}
+            >
+              {(['overview', 'er'] as ViewMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  style={{
+                    padding: '5px 12px',
+                    background: viewMode === mode ? '#F7A501' : '#FFFFFF',
+                    border: 'none',
+                    borderRight: mode === 'overview' ? '1px solid #BFC1B7' : 'none',
+                    cursor: 'pointer',
+                    fontFamily: '"Nunito", system-ui, sans-serif',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: viewMode === mode ? '#23251D' : '#6C6E63',
+                  }}
+                >
+                  {mode === 'overview' ? 'Groups' : 'ER Diagram'}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── main content area ── */}
       <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
-        {/* left pane: overview or ER */}
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            marginRight: panelOpen ? 300 : 0,
-            transition: 'margin-right 180ms ease-out',
-          }}
-        >
-          {viewMode === 'overview' ? (
-            <OverviewMode
-              tables={tables}
-              nodes={nodes}
-              clusters={clusters}
-              accentMap={accentMap}
-              filterText={filterText}
-              selectedTableId={selectedTableId}
-              onSelectTable={(id) => handleSelectTable(id)}
-            />
-          ) : selectedTableId && viewMode === 'er' ? (
-            <ErFocusMode
-              tables={tables}
-              focusTableId={selectedTableId}
-              showAll={erShowAll}
-              onToggleShowAll={() => setErShowAll((v) => !v)}
-              onSelectTable={handleSelectTable}
-            />
-          ) : (
-            /* Full ER diagram (no table selected yet) */
-            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 12,
-                  left: 12,
-                  zIndex: 10,
-                  background: '#FFFFFF',
-                  border: '1px solid #BFC1B7',
-                  borderRadius: 6,
-                  padding: '6px 10px',
-                  fontFamily: '"Nunito", system-ui, sans-serif',
-                  fontSize: 11,
-                  color: '#6C6E63',
-                  boxShadow: '0 1px 4px rgba(21,21,21,0.10)',
-                }}
-              >
-                Click a table to focus on its relationships
-              </div>
-              <ErDiagram
-                tables={tables}
-                selectedTableId={selectedTableId}
-                onSelectTable={handleSelectTable}
-              />
+        {dbTab === 'migrations' ? (
+          /* ── Migrations tab ── */
+          <MigrationsTimeline migrations={migrations} />
+        ) : (
+          /* ── Schema tab ── */
+          <>
+            {/* left pane: overview or ER */}
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                marginRight: panelOpen ? 300 : 0,
+                transition: 'margin-right 180ms ease-out',
+              }}
+            >
+              {viewMode === 'overview' ? (
+                <OverviewMode
+                  tables={tables}
+                  nodes={nodes}
+                  clusters={clusters}
+                  accentMap={accentMap}
+                  filterText={filterText}
+                  selectedTableId={selectedTableId}
+                  onSelectTable={(id) => handleSelectTable(id)}
+                />
+              ) : selectedTableId && viewMode === 'er' ? (
+                <ErFocusMode
+                  tables={tables}
+                  focusTableId={selectedTableId}
+                  showAll={erShowAll}
+                  onToggleShowAll={() => setErShowAll((v) => !v)}
+                  onSelectTable={handleSelectTable}
+                />
+              ) : (
+                /* Full ER diagram (no table selected yet) */
+                <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 12,
+                      left: 12,
+                      zIndex: 10,
+                      background: '#FFFFFF',
+                      border: '1px solid #BFC1B7',
+                      borderRadius: 6,
+                      padding: '6px 10px',
+                      fontFamily: '"Nunito", system-ui, sans-serif',
+                      fontSize: 11,
+                      color: '#6C6E63',
+                      boxShadow: '0 1px 4px rgba(21,21,21,0.10)',
+                    }}
+                  >
+                    Click a table to focus on its relationships
+                  </div>
+                  <ErDiagram
+                    tables={tables}
+                    selectedTableId={selectedTableId}
+                    onSelectTable={handleSelectTable}
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* right detail panel */}
-        {panelOpen && selectedTable && (
-          <TableDetailPanel
-            table={selectedTable}
-            nodes={nodes}
-            accentMap={accentMap}
-            onClose={handleClosePanel}
-            onFocusER={handleFocusER}
-            onSelectModule={handleSelectModule}
-          />
+            {/* right detail panel */}
+            {panelOpen && selectedTable && (
+              <TableDetailPanel
+                table={selectedTable}
+                nodes={nodes}
+                accentMap={accentMap}
+                onClose={handleClosePanel}
+                onFocusER={handleFocusER}
+                onSelectModule={handleSelectModule}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

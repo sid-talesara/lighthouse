@@ -153,9 +153,13 @@ function TableNodeComponent({ id, data }: NodeProps) {
           boxShadow,
           cursor: 'pointer',
           fontFamily: '"Nunito", system-ui, sans-serif',
-          // Entrance animation on the inner wrapper — safe because React Flow
-          // does NOT read or override anything inside the node's subtree.
-          animation: 'erNodeEntrance 180ms ease-out both',
+          // Entrance animation: opacity ONLY — never animate transform here.
+          // React Flow measures node dimensions after mount via
+          // getBoundingClientRect(); a CSS transform animation on the inner
+          // wrapper corrupts those measurements and stacks every node at the
+          // ELK-assigned position before the transform is resolved, causing
+          // all nodes to appear at origin. Opacity is safe.
+          animation: 'erNodeEntrance 220ms ease-out both',
         }}
       >
         {/* left accent stripe */}
@@ -386,6 +390,7 @@ function ErDiagramInner({ tables, selectedTableId, onSelectTable }: ErDiagramInn
       }
     }
 
+    // Reset fitDone so the fitView effect fires after ELK positions arrive.
     fitDone.current = false;
     runElkLayout(rawNodes, rawEdges).then((laid) => {
       setNodes(laid);
@@ -443,17 +448,26 @@ function ErDiagramInner({ tables, selectedTableId, onSelectTable }: ErDiagramInn
     );
   }, [activeId, tables, setEdges]);
 
-  // fitView once nodes are measured
+  // fitView after ELK positions are applied and React Flow has measured nodes.
+  // We use `nodes` (not just nodes.length) so the effect re-runs when the
+  // same-length table set is replaced (e.g. focus mode switching).
+  // `fitView` prop on <ReactFlow> is intentionally NOT set — it would fire on
+  // the initial empty/unpositioned state (all nodes at {x:0,y:0}) before ELK
+  // positions arrive, collapsing everything to origin.
   useEffect(() => {
     if (nodesInitialized && nodes.length > 0 && !fitDone.current) {
       fitDone.current = true;
-      fitView({
-        padding: 0.1,
-        duration: 600,
-        maxZoom: 1.0,
+      // Small delay lets React Flow finish the final layout paint before fitting.
+      const id = requestAnimationFrame(() => {
+        fitView({
+          padding: 0.12,
+          duration: 500,
+          maxZoom: 1.0,
+        });
       });
+      return () => cancelAnimationFrame(id);
     }
-  }, [nodesInitialized, nodes.length, fitView]);
+  }, [nodesInitialized, nodes, fitView]);
 
   const handleNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => {
     setHoveredId(node.id);
@@ -467,11 +481,15 @@ function ErDiagramInner({ tables, selectedTableId, onSelectTable }: ErDiagramInn
 
   return (
     <>
-      {/* keyframe for inner wrapper entrance — does NOT touch .react-flow__node */}
+      {/* keyframe for inner wrapper entrance — opacity only.
+          NEVER animate transform here: React Flow measures node dimensions
+          via getBoundingClientRect() after mount. A transform animation
+          corrupts those measurements and stacks all nodes at origin.
+          Animate only opacity on the inner wrapper div. */}
       <style>{`
         @keyframes erNodeEntrance {
-          from { opacity: 0; transform: scale(0.94) translateY(6px); }
-          to   { opacity: 1; transform: scale(1)    translateY(0);   }
+          from { opacity: 0; }
+          to   { opacity: 1; }
         }
       `}</style>
       <ReactFlow
@@ -485,8 +503,6 @@ function ErDiagramInner({ tables, selectedTableId, onSelectTable }: ErDiagramInn
         onPaneClick={handlePaneClick}
         minZoom={0.15}
         maxZoom={2.0}
-        fitView
-        fitViewOptions={{ padding: 0.1, maxZoom: 1.0 }}
         style={{ background: '#E8E9E2' }}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
