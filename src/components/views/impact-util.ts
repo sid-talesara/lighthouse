@@ -24,6 +24,7 @@ import type {
   Edge,
   LighthouseNode,
   PullRequest,
+  PullRequestFile,
   ChangeKind,
 } from '../../types/lighthouse';
 
@@ -324,6 +325,196 @@ export function plainEnglishImpact(b: BlastRadius): {
 
   const text = `${lead} ${consequence} Risk: ${RISK_WORD[b.risk]}.`;
   return { lead, consequence, risk: b.risk, text };
+}
+
+// ── File-change map: resolve PR files → owning node → cluster ─────────────────
+//
+// A PR ships a list of changed *files* (pr.files). To review them visually we
+// resolve each file path to the most specific owning node (longest path-prefix
+// match), then to that node's cluster. This powers the CodeSee-style map: a
+// tree of changed files grouped by feature area / module, color-coded by change.
+
+/** A single changed file resolved to its owning node + cluster. */
+export interface ResolvedFile {
+  path: string;
+  /** File name only (last path segment), for compact display. */
+  name: string;
+  change: ChangeKind;
+  nodeId: string | null;
+  nodeLabel: string | null;
+  clusterId: string | null;
+  clusterLabel: string;
+}
+
+/** Files belonging to one module, with per-change counts. */
+export interface FileMapModule {
+  nodeId: string | null;
+  nodeLabel: string;
+  files: ResolvedFile[];
+  counts: Record<ChangeKind, number>;
+}
+
+/** Files belonging to one cluster (feature area), grouped by module. */
+export interface FileMapCluster {
+  clusterId: string | null;
+  clusterLabel: string;
+  modules: FileMapModule[];
+  fileCount: number;
+  counts: Record<ChangeKind, number>;
+}
+
+/** The full file-change map for a PR. */
+export interface FileChangeMap {
+  clusters: FileMapCluster[];
+  totalFiles: number;
+  counts: Record<ChangeKind, number>;
+}
+
+function emptyCounts(): Record<ChangeKind, number> {
+  return { added: 0, modified: 0, removed: 0 };
+}
+
+/**
+ * Resolve a repo-relative file path to its owning node via longest path-prefix
+ * match. Falls back to null when no node owns a parent directory of the file.
+ */
+export function resolveFileToNode(
+  filePath: string,
+  nodes: LighthouseNode[],
+): LighthouseNode | null {
+  let best: LighthouseNode | null = null;
+  let bestLen = -1;
+  for (const n of nodes) {
+    const p = n.path;
+    if (!p || p === '.') continue;
+    const prefix = p.endsWith('/') ? p : p + '/';
+    if (filePath === p || filePath.startsWith(prefix)) {
+      if (p.length > bestLen) {
+        best = n;
+        bestLen = p.length;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Build the file-change map for a PR: each changed file resolved to its module +
+ * cluster, grouped for a visual diff-map. Clusters and modules are sorted by
+ * file count (busiest first) so the eye lands on the heaviest area.
+ */
+export function buildFileChangeMap(
+  files: PullRequestFile[],
+  nodes: LighthouseNode[],
+  clusters: Cluster[],
+): FileChangeMap {
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const clusterIdSet = new Set(clusters.map((c) => c.id));
+  const clusterLabelMap = new Map(clusters.map((c) => [c.id, c.label]));
+
+  const resolved: ResolvedFile[] = files.map((f) => {
+    const node = resolveFileToNode(f.path, nodes);
+    const clusterId = node
+      ? resolveClusterId(node.id, nodeMap, clusterIdSet)
+      : null;
+    return {
+      path: f.path,
+      name: f.path.split('/').pop() ?? f.path,
+      change: f.change,
+      nodeId: node?.id ?? null,
+      nodeLabel: node?.label ?? null,
+      clusterId,
+      clusterLabel: clusterId ? clusterLabelMap.get(clusterId) ?? clusterId : 'Unmapped files',
+    };
+  });
+
+  // Group: cluster → module → files.
+  const byCluster = new Map<string, ResolvedFile[]>();
+  for (const r of resolved) {
+    const key = r.clusterId ?? '__none__';
+    if (!byCluster.has(key)) byCluster.set(key, []);
+    byCluster.get(key)!.push(r);
+  }
+
+  const clustersOut: FileMapCluster[] = [...byCluster.entries()].map(([key, clusterFiles]) => {
+    const byModule = new Map<string, ResolvedFile[]>();
+    for (const r of clusterFiles) {
+      const mkey = r.nodeId ?? '__nomod__';
+      if (!byModule.has(mkey)) byModule.set(mkey, []);
+      byModule.get(mkey)!.push(r);
+    }
+    const modules: FileMapModule[] = [...byModule.entries()].map(([mkey, modFiles]) => {
+      const counts = emptyCounts();
+      for (const f of modFiles) counts[f.change] += 1;
+      return {
+        nodeId: mkey === '__nomod__' ? null : mkey,
+        nodeLabel: mkey === '__nomod__' ? 'Other files' : modFiles[0].nodeLabel ?? mkey,
+        files: modFiles,
+        counts,
+      };
+    });
+    modules.sort((a, b) => b.files.length - a.files.length || a.nodeLabel.localeCompare(b.nodeLabel));
+
+    const counts = emptyCounts();
+    for (const f of clusterFiles) counts[f.change] += 1;
+    return {
+      clusterId: key === '__none__' ? null : key,
+      clusterLabel: key === '__none__' ? 'Unmapped files' : clusterLabelMap.get(key) ?? key,
+      modules,
+      fileCount: clusterFiles.length,
+      counts,
+    };
+  });
+  clustersOut.sort((a, b) => b.fileCount - a.fileCount || a.clusterLabel.localeCompare(b.clusterLabel));
+
+  const counts = emptyCounts();
+  for (const f of resolved) counts[f.change] += 1;
+
+  return { clusters: clustersOut, totalFiles: resolved.length, counts };
+}
+
+// ── Recommended PRs: rank the high-impact "here's what mattered" entry points ──
+
+export interface RankedPr {
+  pr: PullRequest;
+  blast: BlastRadius;
+  /** Composite impact score (higher = more consequential). */
+  score: number;
+  /** Number of changed files (from pr.files), for display. */
+  fileCount: number;
+}
+
+/**
+ * Rank PRs by impact so the view can surface a few as "Recommended".
+ *
+ * Impact blends the things that make a change matter to a reviewer:
+ *   - modules touched           (breadth of the change itself)
+ *   - downstream dependents      (how far it ripples) — weighted highest
+ *   - feature areas spanned      (cross-cutting changes are riskier)
+ *   - additions + deletions      (raw churn, log-scaled so megadiffs don't dominate)
+ *   - changed-file count         (surface area to review)
+ */
+export function rankRecommendedPrs(
+  prs: PullRequest[],
+  edges: Edge[],
+  nodes: LighthouseNode[],
+  clusters: Cluster[],
+): RankedPr[] {
+  const ranked: RankedPr[] = prs.map((pr) => {
+    const blast = computeBlastRadius(pr, edges, nodes, clusters);
+    const churn = (pr.additions ?? 0) + (pr.deletions ?? 0);
+    const fileCount = pr.files?.length ?? 0;
+    const score =
+      blast.touched.length * 6 +
+      blast.affected.length * 10 +
+      Math.max(0, blast.clustersSpanned.length - 1) * 14 +
+      Math.log10(churn + 1) * 12 +
+      fileCount * 1.5 +
+      (blast.touched.some((t) => t.change === 'removed') ? 8 : 0);
+    return { pr, blast, score, fileCount };
+  });
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked;
 }
 
 /** Touched nodes grouped by their owning cluster (for the "What changed" list). */

@@ -29,12 +29,18 @@ import type { ViewProps } from './viewContract';
 import type { ChangeKind, PullRequest } from '../../types/lighthouse';
 import { PrTimeline } from './PrTimeline';
 import { BlastRadiusGraph } from './BlastRadiusGraph';
+import { FileChangeMap } from './FileChangeMap';
+import { RecommendedPRs } from './RecommendedPRs';
+import { CodeViewer } from '../CodeViewer';
 import {
+  buildFileChangeMap,
   computeBlastRadius,
   groupTouchedByCluster,
   plainEnglishImpact,
+  rankRecommendedPrs,
   riskRationale,
   type BlastRadius,
+  type FileChangeMap as FileChangeMapData,
   type RiskLevel,
 } from './impact-util';
 
@@ -162,7 +168,7 @@ function NoDataState() {
 
 function NoSelectionState() {
   return (
-    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, textAlign: 'center' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 40px 24px', textAlign: 'center', borderTop: '1px solid #DCDFD2' }}>
       <div style={{ maxWidth: 380 }}>
         <div
           style={{
@@ -235,12 +241,12 @@ function Metric({ value, label, accent }: { value: string | number; label: strin
   );
 }
 
-function MetricStrip({ blast }: { blast: BlastRadius }) {
+function MetricStrip({ blast, fileCount }: { blast: BlastRadius; fileCount: number }) {
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: 'repeat(5, 1fr)',
         gap: 12,
         padding: '14px 18px',
         background: '#FFFFFF',
@@ -248,14 +254,15 @@ function MetricStrip({ blast }: { blast: BlastRadius }) {
         borderRadius: 6,
       }}
     >
-      <Metric value={blast.touched.length} label="modules changed" />
+      <Metric value={fileCount} label="files changed" />
+      <Metric value={blast.touched.length} label="modules" />
       <Metric
         value={blast.affected.length}
         label="depend on it"
         accent={blast.affected.length > 0 ? '#DD9001' : '#151515'}
       />
       <Metric value={blast.clustersSpanned.length} label="feature areas" />
-      <Metric value={`+${blast.additions}/-${blast.deletions}`} label="lines changed" />
+      <Metric value={`+${blast.additions}/-${blast.deletions}`} label="lines" />
     </div>
   );
 }
@@ -555,7 +562,15 @@ export function ChangesView({ data, selectedNodeId, onSelectNode, onHighlightNod
     [prs],
   );
 
+  // Rank PRs by impact for the "Recommended" entry points.
+  const ranked = useMemo(
+    () => rankRecommendedPrs(prs, data.edges, data.nodes, data.clusters),
+    [prs, data.edges, data.nodes, data.clusters],
+  );
+
   const [selectedPrId, setSelectedPrId] = useState<string | null>(null);
+  // File whose source is open in the CodeViewer modal (null = closed).
+  const [openFilePath, setOpenFilePath] = useState<string | null>(null);
 
   const selectedPr = useMemo(() => prs.find((p) => p.id === selectedPrId) ?? null, [prs, selectedPrId]);
 
@@ -564,9 +579,19 @@ export function ChangesView({ data, selectedNodeId, onSelectNode, onHighlightNod
     [selectedPr, data.edges, data.nodes, data.clusters],
   );
 
+  // CodeSee-style file-change map for the selected PR.
+  const fileMap = useMemo<FileChangeMapData | null>(
+    () =>
+      selectedPr && selectedPr.files && selectedPr.files.length > 0
+        ? buildFileChangeMap(selectedPr.files, data.nodes, data.clusters)
+        : null,
+    [selectedPr, data.nodes, data.clusters],
+  );
+
   const handleSelectPr = useCallback(
     (pr: PullRequest) => {
       setSelectedPrId(pr.id);
+      setOpenFilePath(null);
       const b = computeBlastRadius(pr, data.edges, data.nodes, data.clusters);
       const ids = new Set<string>([...b.touched.map((t) => t.id), ...b.affected.map((a) => a.id)]);
       onHighlightNodes(ids);
@@ -664,63 +689,94 @@ export function ChangesView({ data, selectedNodeId, onSelectNode, onHighlightNod
 
         {/* Right: impact area */}
         <div style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {!blast ? (
-            <NoSelectionState />
-          ) : (
-            <div
-              style={{
-                maxWidth: 880,
-                margin: '0 auto',
-                padding: '20px 24px 32px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 18,
-              }}
-            >
-              {/* 1. PR header */}
-              <PrHeader blast={blast} now={now} />
+          <div
+            style={{
+              maxWidth: 920,
+              margin: '0 auto',
+              padding: '20px 24px 32px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 18,
+            }}
+          >
+            {/* Recommended — "here's what mattered" entry points (always on top). */}
+            <RecommendedPRs ranked={ranked} selectedPrId={selectedPrId} onSelectPr={handleSelectPr} />
 
-              {/* 2. Plain-English impact statement */}
-              <ImpactStatement blast={blast} />
+            {!blast ? (
+              <NoSelectionState />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {/* Divider */}
+                <div style={{ borderTop: '1px solid #DCDFD2', marginTop: 2 }} />
 
-              {/* 3. Metric strip */}
-              <MetricStrip blast={blast} />
+                {/* 1. PR header */}
+                <PrHeader blast={blast} now={now} />
 
-              {/* 4 + 5. What changed / What it affects */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                  gap: 24,
-                  alignItems: 'start',
-                }}
-              >
-                <WhatChanged
-                  blast={blast}
-                  clusterLabelMap={clusterLabelMap}
-                  selectedNodeId={selectedNodeId}
-                  onPick={handlePickNode}
-                />
-                <WhatItAffects blast={blast} selectedNodeId={selectedNodeId} onPick={handlePickNode} />
+                {/* 2. "What happened" — plain-English headline + risk */}
+                <ImpactStatement blast={blast} />
+
+                {/* 3. Metric strip — the key numbers */}
+                <MetricStrip blast={blast} fileCount={fileMap?.totalFiles ?? selectedPr?.files?.length ?? 0} />
+
+                {/* 4. CodeSee-style visual file-change review */}
+                {fileMap && (
+                  <section>
+                    <SectionHeader
+                      title="Review the changes"
+                      hint="Every file this PR touched, mapped onto the architecture — grouped by feature area and module, color-coded by change. Click any file to read its source."
+                    />
+                    <FileChangeMap
+                      map={fileMap}
+                      selectedNodeId={selectedNodeId}
+                      activeFilePath={openFilePath}
+                      onOpenFile={setOpenFilePath}
+                      onPickNode={handlePickNode}
+                      replayKey={blast.pr.id}
+                    />
+                  </section>
+                )}
+
+                {/* 5 + 6. What changed / What it affects */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                    gap: 24,
+                    alignItems: 'start',
+                  }}
+                >
+                  <WhatChanged
+                    blast={blast}
+                    clusterLabelMap={clusterLabelMap}
+                    selectedNodeId={selectedNodeId}
+                    onPick={handlePickNode}
+                  />
+                  <WhatItAffects blast={blast} selectedNodeId={selectedNodeId} onPick={handlePickNode} />
+                </div>
+
+                {/* 7. Blast radius — what depends on the changes (zoomable). */}
+                <section>
+                  <SectionHeader
+                    title="What it ripples into"
+                    hint="The change on the left; everything that depends on it fanning out to the right. Scroll to zoom, drag to pan."
+                  />
+                  <BlastRadiusGraph
+                    blast={blast}
+                    selectedNodeId={selectedNodeId}
+                    onPick={handlePickNode}
+                    replayKey={blast.pr.id}
+                  />
+                </section>
               </div>
-
-              {/* 6. Visual graph — labeled support */}
-              <section>
-                <SectionHeader
-                  title="Impact at a glance"
-                  hint="The same information as a diagram: the change on the left, everything that depends on it fanning out to the right."
-                />
-                <BlastRadiusGraph
-                  blast={blast}
-                  selectedNodeId={selectedNodeId}
-                  onPick={handlePickNode}
-                  replayKey={blast.pr.id}
-                />
-              </section>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
+
+      {/* CodeViewer modal — opens a changed file's real source (CodeSee-style peek). */}
+      {openFilePath && (
+        <FileViewerModal path={openFilePath} onClose={() => setOpenFilePath(null)} />
+      )}
 
       <style>{`
         @keyframes prPulse {
@@ -728,6 +784,92 @@ export function ChangesView({ data, selectedNodeId, onSelectNode, onHighlightNod
           50%      { opacity: 0.45; transform: scale(0.7); }
         }
       `}</style>
+    </div>
+  );
+}
+
+// ─── File source modal (peek a changed file via CodeViewer) ───────────────────
+
+function FileViewerModal({ path, onClose }: { path: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Source of ${path}`}
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'rgba(21,21,21,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 32,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(960px, 100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            background: '#1A1C14',
+            border: '1px solid #3A3C32',
+            borderBottom: 'none',
+            borderRadius: '6px 6px 0 0',
+            padding: '8px 12px',
+          }}
+        >
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: 12,
+              fontFamily: FONT_MONO,
+              color: '#C4C5BC',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+            title={path}
+          >
+            {path}
+          </span>
+          <button
+            onClick={onClose}
+            aria-label="Close file viewer"
+            style={{
+              flexShrink: 0,
+              background: 'transparent',
+              border: '1px solid #4B4B4B',
+              borderRadius: 4,
+              color: '#C4C5BC',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 700,
+              padding: '2px 9px',
+              fontFamily: FONT_UI,
+            }}
+          >
+            Esc ✕
+          </button>
+        </div>
+        <div style={{ overflow: 'auto', borderRadius: '0 0 6px 6px' }}>
+          <CodeViewer path={path} maxHeight="74vh" className="rounded-none" />
+        </div>
+      </div>
     </div>
   );
 }

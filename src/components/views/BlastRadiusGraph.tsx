@@ -24,9 +24,12 @@
  * the ripple once. No looping pulses — clarity over flash.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeKind, EdgeKind } from '../../types/lighthouse';
 import type { BlastRadius } from './impact-util';
+
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 2.5;
 
 interface Props {
   blast: BlastRadius;
@@ -81,6 +84,12 @@ export function BlastRadiusGraph({ blast, selectedNodeId, onPick, replayKey }: P
   // How many columns have been revealed so far (gentle left→right reveal).
   const [wave, setWave] = useState(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // ── Zoom / pan ──────────────────────────────────────────────────────────────
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
   // Columns: column 0 = touched, columns 1..maxHops = affected rings.
   const columns = useMemo<Placed[][]>(() => {
@@ -167,23 +176,141 @@ export function BlastRadiusGraph({ blast, selectedNodeId, onPick, replayKey }: P
 
   const isLit = (w: number) => w <= wave;
 
+  // Reset viewport when a new PR is selected.
+  useEffect(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, [replayKey]);
+
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const rect = vp.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    setZoom((z) => {
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z * factor));
+      const ratio = next / z;
+      setPan((p) => ({ x: cx - (cx - p.x) * ratio, y: cy - (cy - p.y) * ratio }));
+      return next;
+    });
+  }, []);
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if ((e.target as HTMLElement).closest('[data-node]')) return; // let node clicks through
+      drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [pan],
+  );
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!drag.current) return;
+    setPan({ x: drag.current.px + (e.clientX - drag.current.x), y: drag.current.py + (e.clientY - drag.current.y) });
+  }, []);
+
+  const endDrag = useCallback((e: React.PointerEvent) => {
+    drag.current = null;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* no-op */
+    }
+  }, []);
+
+  const adjustZoom = useCallback((dir: 1 | -1) => {
+    const vp = viewportRef.current;
+    const cx = vp ? vp.clientWidth / 2 : 0;
+    const cy = vp ? vp.clientHeight / 2 : 0;
+    setZoom((z) => {
+      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, dir === 1 ? z * 1.2 : z / 1.2));
+      const ratio = next / z;
+      setPan((p) => ({ x: cx - (cx - p.x) * ratio, y: cy - (cy - p.y) * ratio }));
+      return next;
+    });
+  }, []);
+
+  const resetView = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
   return (
     <div>
       <div
+        ref={viewportRef}
+        onWheel={onWheel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerLeave={endDrag}
         style={{
-          overflowX: 'auto',
+          position: 'relative',
+          height: 360,
+          overflow: 'hidden',
           borderRadius: 6,
           border: '1px solid #BFC1B7',
           background: '#FBFBF9',
+          cursor: drag.current ? 'grabbing' : 'grab',
+          touchAction: 'none',
         }}
       >
+        {/* Zoom controls */}
+        <div
+          data-node
+          style={{ position: 'absolute', top: 10, right: 10, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 6 }}
+        >
+          {([['+', 1], ['−', -1], ['⤢', 0]] as const).map(([label, dir]) => (
+            <button
+              key={label}
+              aria-label={dir === 1 ? 'Zoom in' : dir === -1 ? 'Zoom out' : 'Reset view'}
+              onClick={() => (dir === 0 ? resetView() : adjustZoom(dir))}
+              style={{
+                width: 28,
+                height: 28,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#FFFFFF',
+                border: '1px solid #BFC1B7',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 14,
+                fontWeight: 700,
+                color: '#4D4F46',
+                fontFamily: 'Nunito, system-ui',
+                lineHeight: 1,
+                padding: 0,
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#E5E7E0')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = '#FFFFFF')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Transform layer — pan/zoom applied imperatively (never in a keyframe). */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transformOrigin: '0 0',
+            willChange: 'transform',
+          }}
+        >
         <svg
           viewBox={`0 0 ${width} ${height}`}
-          width={Math.max(width, 480)}
+          width={width}
           height={height}
           role="img"
           aria-label={`Impact diagram. ${blast.touched.length} module(s) changed in this PR; ${blast.affected.length} downstream module(s) depend on them. Arrows point from a dependent to what it depends on.`}
-          style={{ display: 'block', minWidth: '100%' }}
+          style={{ display: 'block' }}
         >
           <defs>
             <marker id="br-arrow" markerWidth={9} markerHeight={7} refX={8} refY={3.5} orient="auto">
@@ -258,6 +385,7 @@ export function BlastRadiusGraph({ blast, selectedNodeId, onPick, replayKey }: P
             return (
               <g
                 key={p.id}
+                data-node
                 transform={`translate(${p.x}, ${p.y})`}
                 style={{
                   cursor: 'pointer',
@@ -314,6 +442,23 @@ export function BlastRadiusGraph({ blast, selectedNodeId, onPick, replayKey }: P
             );
           })}
         </svg>
+        </div>
+
+        {/* Pan/zoom hint */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            left: 12,
+            fontSize: 10.5,
+            color: '#9B9C92',
+            fontFamily: 'Nunito, system-ui',
+            fontWeight: 600,
+            pointerEvents: 'none',
+          }}
+        >
+          Scroll to zoom · drag to pan
+        </div>
       </div>
 
       {/* Legend — explains every color and the arrow meaning */}
