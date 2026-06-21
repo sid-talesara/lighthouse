@@ -47,6 +47,7 @@ export interface FunctionDetailPanelProps {
   calleeFns: FunctionNode[];
   onSelectFn: (id: string) => void;
   onClose: () => void;
+  onAskContext?: (question: string) => void;
   /** Module accent color */
   accentColor: string;
 }
@@ -135,6 +136,7 @@ export function FunctionDetailPanel({
   calleeFns,
   onSelectFn,
   onClose,
+  onAskContext,
   accentColor,
 }: FunctionDetailPanelProps) {
   // Pick the first key_file from the owning module to show in CodeViewer
@@ -299,6 +301,44 @@ export function FunctionDetailPanel({
             )}
           </div>
         </div>
+
+        {onAskContext && (
+          <button
+            onClick={() => {
+              const fileList = moduleNode?.key_files?.slice(0, 4).join(', ') || 'no mapped key files';
+              onAskContext(
+                [
+                  `Explain the selected function ${fn.name}.`,
+                  `Function id: ${fn.id}.`,
+                  `Signature: ${fn.signature || 'unknown'}.`,
+                  `Module: ${moduleNode?.label ?? fn.module_id} (${fn.module_id}).`,
+                  service ? `Service: ${service.name} (${service.kind}).` : '',
+                  `Source files: ${fileList}.`,
+                  `Also explain callers, callees, risks, and where this fits in the system.`,
+                ].filter(Boolean).join(' '),
+              );
+            }}
+            title="Ask Local Codex about this function"
+            style={{
+              flexShrink: 0,
+              height: 24,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '1px solid #DD9001',
+              borderRadius: 4,
+              background: '#F7A501',
+              color: '#151515',
+              cursor: 'pointer',
+              fontFamily: '"Nunito", system-ui, sans-serif',
+              fontSize: 11,
+              fontWeight: 800,
+              padding: '0 9px',
+            }}
+          >
+            Ask
+          </button>
+        )}
 
         {/* Close button */}
         <button

@@ -1,4 +1,5 @@
 export const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+export const GENERATE_AGENT_TIMEOUT_MS = 15 * 60 * 1000;
 export const DEFAULT_CODEX_MODEL = "gpt-5.5";
 export const DEFAULT_CODEX_REASONING_EFFORT = "medium";
 
@@ -37,6 +38,7 @@ export interface RunAgentOptions {
   repoPath: string;
   prompt: string;
   model?: string;
+  timeoutMs?: number;
   signal?: AbortSignal;
   onProgress?: AgentProgressHandler;
 }

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z, ZodError } from "zod";
 
-import type { AgentProgressEventType } from "../agent/agent-types.js";
+import { GENERATE_AGENT_TIMEOUT_MS, type AgentProgressEventType } from "../agent/agent-types.js";
 import { AgentCancelledError, AgentTimeoutError } from "../agent/agent-types.js";
 import { buildAnalysisPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
@@ -122,6 +122,51 @@ function statusForError(error: unknown, message: string): number {
   return message.startsWith("repoPath") ? 400 : 500;
 }
 
+function normalizeClusterModules(parsed: unknown): number {
+  if (!parsed || typeof parsed !== "object") return 0;
+  const record = parsed as { clusters?: unknown; nodes?: unknown };
+  if (!Array.isArray(record.clusters) || !Array.isArray(record.nodes)) return 0;
+
+  const clusterRecords = record.clusters.filter(
+    (cluster): cluster is { id: string; modules?: unknown } =>
+      !!cluster && typeof cluster === "object" && typeof (cluster as { id?: unknown }).id === "string",
+  );
+  const clusterIds = new Set(clusterRecords.map((cluster) => cluster.id));
+  const modulesByCluster = new Map<string, string[]>();
+  for (const cluster of clusterRecords) modulesByCluster.set(cluster.id, []);
+
+  for (const node of record.nodes) {
+    if (!node || typeof node !== "object") continue;
+    const candidate = node as { id?: unknown; kind?: unknown; parent?: unknown };
+    if (
+      typeof candidate.id !== "string" ||
+      candidate.kind !== "module" ||
+      typeof candidate.parent !== "string" ||
+      !clusterIds.has(candidate.parent)
+    ) {
+      continue;
+    }
+    modulesByCluster.get(candidate.parent)?.push(candidate.id);
+  }
+
+  let changed = 0;
+  for (const cluster of clusterRecords) {
+    const normalized = modulesByCluster.get(cluster.id) ?? [];
+    const existing = Array.isArray(cluster.modules)
+      ? cluster.modules.filter((moduleId): moduleId is string => typeof moduleId === "string")
+      : [];
+    if (
+      existing.length !== normalized.length ||
+      existing.some((moduleId, index) => moduleId !== normalized[index])
+    ) {
+      cluster.modules = normalized;
+      changed += 1;
+    }
+  }
+
+  return changed;
+}
+
 function parseGenerateRequest(body: unknown): {
   repoPath: string;
   model?: string;
@@ -230,6 +275,7 @@ async function runGeneration(options: {
     const rawResult = await runAgent({
       repoPath: options.repoPath,
       model: options.model,
+      timeoutMs: GENERATE_AGENT_TIMEOUT_MS,
       signal: options.signal,
       prompt: buildAnalysisPrompt(),
       onProgress: (event) => {
@@ -250,6 +296,14 @@ async function runGeneration(options: {
     });
     const jsonText = extractJson(rawResult);
     const parsed = JSON.parse(jsonText);
+    const normalizedClusters = normalizeClusterModules(parsed);
+    if (normalizedClusters > 0) {
+      options.onProgress?.({
+        type: "validation",
+        phase,
+        message: `Normalized ${normalizedClusters} cluster module lists from node parents.`,
+      });
+    }
 
     phase = "indexing";
     options.onProgress?.({

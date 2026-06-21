@@ -491,7 +491,7 @@ async function readCodexOutput(outputPath: string, stdout: string): Promise<stri
 
 export const codexAgentRunner: AgentRunner = {
   kind: "codex",
-  async run({ repoPath, prompt, model, signal, onProgress }: RunAgentOptions): Promise<string> {
+  async run({ repoPath, prompt, model, timeoutMs = AGENT_TIMEOUT_MS, signal, onProgress }: RunAgentOptions): Promise<string> {
     const startedAt = Date.now();
     const env = getLoginShellEnvironment();
     const codexBin = resolveCliExecutable("codex", env);
@@ -523,7 +523,7 @@ export const codexAgentRunner: AgentRunner = {
         cwd: repoPath,
         env,
         input: prompt,
-        timeoutMs: AGENT_TIMEOUT_MS,
+        timeoutMs,
         signal,
         onStdoutChunk: (chunk) => {
           jsonLines.push(chunk, (line) => handleCodexJsonLine(line, onProgress, startedAt));

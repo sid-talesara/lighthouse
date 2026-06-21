@@ -15,6 +15,20 @@ body,
   height: 100%;
 }
 
+/* Hard viewport containment: the app shell owns all scrolling via its own
+   internal scroll areas. The document/window must NEVER scroll, so even a
+   stray scrollIntoView/focus deep in the tree cannot push the chrome
+   off-screen. overflow:clip pins #root to the viewport box. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+#root {
+  overflow: clip;
+}
+
 body {
   margin: 0;
   background: #eeefe9; /* PostHog tan canvas */

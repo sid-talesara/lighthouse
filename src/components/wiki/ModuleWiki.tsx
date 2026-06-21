@@ -721,15 +721,21 @@ function WikiProseSection({
             <h3 className="mb-3 font-sans text-[16px] font-bold text-ph-ink">{sec.title}</h3>
             <div className="text-[14px] leading-relaxed text-ph-body">
               <ReactMarkdown
-                components={{
-                  p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
-                  ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5">{children}</ul>,
-                  ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5">{children}</ol>,
-                  li: ({ children }) => <li className="leading-snug">{children}</li>,
-                  strong: ({ children }) => <strong className="font-semibold text-ph-ink">{children}</strong>,
-                  h3: ({ children }) => (
-                    <h3 className="mb-2 mt-5 font-sans text-[14px] font-semibold text-ph-ink">{children}</h3>
-                  ),
+	                components={{
+	                  h2: ({ children }) => (
+	                    <h2 className="mb-2 mt-6 border-b border-ph-border pb-1 font-sans text-[15px] font-bold text-ph-ink">{children}</h2>
+	                  ),
+	                  p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+	                  ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5">{children}</ul>,
+	                  ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5">{children}</ol>,
+	                  li: ({ children }) => <li className="leading-snug">{children}</li>,
+	                  strong: ({ children }) => <strong className="font-semibold text-ph-ink">{children}</strong>,
+	                  h3: ({ children }) => (
+	                    <h3 className="mb-2 mt-5 font-sans text-[14px] font-semibold text-ph-ink">{children}</h3>
+	                  ),
+	                  h4: ({ children }) => (
+	                    <h4 className="mb-1.5 mt-4 font-sans text-[12px] font-bold uppercase tracking-wider text-ph-mute">{children}</h4>
+	                  ),
                   blockquote: ({ children }) => (
                     <div className="my-4 rounded-r-ph border-l-4 border-ph-yellow bg-yellow-50 px-4 py-3 text-[13px] text-ph-body">
                       {children}

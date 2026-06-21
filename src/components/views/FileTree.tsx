@@ -11,6 +11,7 @@ import ReactMarkdown from 'react-markdown';
 import type { LighthouseData, LighthouseNode } from '../../types/lighthouse';
 import { askMap, type AskResult } from '../../lib/ask';
 import type { GenerateModel } from '../../lib/generateOptions';
+import { FileReferenceList, FileViewerModal } from '../FileReference';
 
 // ─── Tree Data Model ──────────────────────────────────────────────────────────
 
@@ -597,6 +598,8 @@ export function FileTree({
 }
 
 function FileSearchAgentResult({ result }: { result: AskResult }) {
+  const [openFilePath, setOpenFilePath] = useState<string | null>(null);
+
   return (
     <div className="space-y-2 text-left">
       <div className="flex items-center gap-2">
@@ -667,17 +670,10 @@ function FileSearchAgentResult({ result }: { result: AskResult }) {
         </div>
       )}
       {result.file_paths.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {result.file_paths.slice(0, 4).map((filePath) => (
-            <span
-              key={filePath}
-              className="max-w-full truncate rounded-ph-sm border border-ph-border bg-ph-surface px-1.5 py-0.5 font-mono text-[10px] text-ph-body"
-              title={filePath}
-            >
-              {filePath}
-            </span>
-          ))}
-        </div>
+        <FileReferenceList paths={result.file_paths} onOpen={setOpenFilePath} limit={4} compact />
+      )}
+      {openFilePath && (
+        <FileViewerModal path={openFilePath} onClose={() => setOpenFilePath(null)} />
       )}
     </div>
   );

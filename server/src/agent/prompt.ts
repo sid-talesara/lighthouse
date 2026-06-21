@@ -46,19 +46,21 @@ SCHEMA (output must match exactly):
 }
 
 RULES
-1. Group into 5-8 top-level CAPABILITY clusters, named by what they do rather than where files live.
-2. For each cluster, enumerate 2-6 modules and list each module's key_files.
-3. Write a one-sentence summary for every node. No node may have an empty summary.
-4. Capture the 5-10 most important dependency edges between modules. kind must be one of: depends, calls, imports.
-5. Identify 2-3 key request or data flows with ordered steps. Each step.node must be a valid node id.
-6. Write 4-6 wiki sections in markdown. Suggested sections: Overview, Architecture, Key Flows, Entry Points, Data Model, Getting Started.
-7. Every id referenced in clusters.modules, nodes.parent, edges, flows.steps.node, and sections.related_nodes must exist as a node id or cluster id as appropriate for the field.
-8. Be accurate to the actual code. Do not invent files, paths, or capabilities you did not see.
-9. changed_recently must be true only for nodes whose files you can confirm were modified recently, such as git log changes in the last 14 days. Default false if uncertain.
-10. Identify the ~20-40 most important exported functions across key files as "functions" ({id, name, module_id, signature, summary}) where module_id is one of your node ids. Give each function a stable unique id (e.g. moduleId_functionName). signature is a short one-line type signature; summary is one sentence.
-11. Capture "calls" edges ({from, to}) between those functions where one function invokes another. Both from and to must be ids that appear in functions. Include only edges you can confirm from the code; an empty array is acceptable if none are clear.
-12. OPTIONAL: identify deployable "services" (e.g. apps/* in a monorepo, distinct servers, frontends, workers, realtime servers) with a kind, one-line summary, path, and module_ids (your node ids that belong to the service). Add "serviceLinks" describing how services talk to each other with a protocol (http/ws/queue/grpc/db/event). This is optional enrichment; omit or leave empty arrays if the repo is a single service or unclear.
-13. Output ONLY the JSON object. No markdown fences. No text before or after.`;
+1. Complete the analysis in a practical 5-8 minute budget. If needed, prefer a smaller accurate map over an oversized response that times out.
+2. Build a broad, zoomable capability map, not a tiny executive summary. Group into 12-18 top-level CAPABILITY clusters for large repos, named by what they do rather than where files live. Use 8-12 clusters only for genuinely small repos.
+3. For each cluster, enumerate the meaningful implementation modules under it and list each module's key_files. Target 5-9 modules per cluster for small/medium repos and 7-12 modules per cluster for large monorepos. Avoid collapsing unrelated services, packages, routes, workers, UI surfaces, or data layers into one generic module.
+4. Write a one-sentence summary for every node. No node may have an empty summary.
+5. Capture the 40-90 most important dependency edges between modules for large repos, or 18-40 edges for smaller repos. kind must be one of: depends, calls, imports.
+6. Identify 5-9 key request or data flows with ordered steps when the repo has enough surface area. Each step.node must be a valid node id.
+7. Write 8-12 comprehensive wiki sections in markdown for substantial repos. Each section body must be structured like real internal documentation with nested headings (## and ###), short paragraphs, bullets, concrete file paths, key decisions, operational notes, and "follow the code" pointers. Suggested sections: Overview, Architecture, Services, Key Flows, Entry Points, Data Model, Background Jobs, Realtime, Integrations, Testing, Security, Deployment, Getting Started.
+8. Every id referenced in clusters.modules, nodes.parent, edges, flows.steps.node, and sections.related_nodes must exist as a node id or cluster id as appropriate for the field.
+9. Keep cluster membership internally consistent: each module id listed in clusters.modules MUST have a node whose parent is that same cluster id. Do not list a module under one cluster while setting its node.parent to another cluster.
+10. Be accurate to the actual code. Do not invent files, paths, or capabilities you did not see.
+11. changed_recently must be true only for nodes whose files you can confirm were modified recently, such as git log changes in the last 14 days. Default false if uncertain.
+12. Identify the ~80-160 most important exported functions across key files as "functions" ({id, name, module_id, signature, summary}) where module_id is one of your node ids. For large repos, cover every major service/package area instead of only the first few files you inspect. Give each function a stable unique id (e.g. moduleId_functionName). signature is a short one-line type signature; summary is one sentence.
+13. Capture "calls" edges ({from, to}) between those functions where one function invokes another. Both from and to must be ids that appear in functions. Include only edges you can confirm from the code; an empty array is acceptable if none are clear.
+14. OPTIONAL: identify deployable "services" (e.g. apps/* in a monorepo, distinct servers, frontends, workers, realtime servers) with a kind, one-line summary, path, and module_ids (your node ids that belong to the service). Add "serviceLinks" describing how services talk to each other with a protocol (http/ws/queue/grpc/db/event). This is optional enrichment; omit or leave empty arrays if the repo is a single service or unclear.
+15. Output ONLY the JSON object. No markdown fences. No text before or after.`;
 }
 
 export function buildQueryPrompt(input: {

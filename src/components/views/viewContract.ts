@@ -48,6 +48,8 @@ export interface ViewProps {
   repoPath?: string;
   /** Local Codex model used by query surfaces. */
   model?: GenerateModel;
+  /** Open the Ask tab with a contextual question from a diagram/detail surface. */
+  onAskContext?: (question: string) => void;
 }
 
 /** The top-level views, in tab order. */

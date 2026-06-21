@@ -124,15 +124,32 @@ export function ReadingPanel({
 
     setMapHighlightedSections(ids);
 
-    // Auto-scroll to first matching section
+    // Auto-scroll to first matching section.
+    //
+    // IMPORTANT: we must NOT use el.scrollIntoView() here. scrollIntoView walks
+    // up EVERY scrollable ancestor (including ones with overflow:hidden, like
+    // the app shell) and scrolls each so the target reaches the requested
+    // block position. Because the panel's intermediate flex wrappers overflow
+    // with overflow:visible, scrollIntoView would reach all the way up to the
+    // h-screen/overflow-hidden shell and scroll IT — pushing the header + tab
+    // bar off-screen with no scrollbar to bring them back. Instead we scroll
+    // ONLY our own container by computing the target's offset relative to it
+    // and setting scrollTop directly.
     if (ids.size > 0) {
       const firstId = data.sections.find((s) => ids.has(s.id))?.id;
       if (firstId) {
         const el = sectionRefs.current.get(firstId);
-        if (el && scrollContainerRef.current) {
-          // Small timeout lets layout settle before scrolling
+        const container = scrollContainerRef.current;
+        if (el && container) {
+          // Small timeout lets layout settle before scrolling.
           setTimeout(() => {
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Target scrollTop = current scroll + (card top − container top),
+            // computed from live rects so it is correct regardless of which
+            // ancestor the card is positioned against.
+            const cardRect = el.getBoundingClientRect();
+            const contRect = container.getBoundingClientRect();
+            const top = container.scrollTop + (cardRect.top - contRect.top);
+            container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
           }, 60);
         }
       }

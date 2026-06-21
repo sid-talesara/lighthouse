@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import { createServer } from "node:http";
 
+import { GENERATE_AGENT_TIMEOUT_MS } from "./agent/agent-types.js";
 import { generateRouter } from "./routes/generate.js";
 import { fileRouter, setRepoRoot } from "./routes/file.js";
 import { queryRouter } from "./routes/query.js";
@@ -9,7 +10,7 @@ import { validateRepoPath } from "./utils/path-safety.js";
 
 const PORT = Number.parseInt(process.env.PORT ?? "3001", 10);
 const HOST = "127.0.0.1";
-const AGENT_TIMEOUT_MS = 5 * 60 * 1000;
+const SERVER_TIMEOUT_MS = GENERATE_AGENT_TIMEOUT_MS + 60_000;
 
 const app = express();
 
@@ -45,7 +46,7 @@ app.use("/api", fileRouter);
 app.use("/api", queryRouter);
 
 const httpServer = createServer(app);
-httpServer.setTimeout(AGENT_TIMEOUT_MS);
+httpServer.setTimeout(SERVER_TIMEOUT_MS);
 httpServer.listen(PORT, HOST, () => {
   console.log(`[companion] listening on http://${HOST}:${PORT}`);
   console.log("[companion] local-only server; do not expose this port to the internet");

@@ -34,6 +34,7 @@ export function DependenciesView(props: ViewProps) {
           data={props.data}
           selectedNodeId={props.selectedNodeId}
           onOpenWiki={props.onOpenWiki}
+          onAskContext={props.onAskContext}
         />
       </div>
 

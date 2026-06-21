@@ -115,6 +115,7 @@ export default function App() {
   const [reloadKey, setReloadKey] = useState(0);
   const [queryRepoPath, setQueryRepoPath] = useState(readStoredRepoPath);
   const [queryModel, setQueryModel] = useState<GenerateModel>(readStoredModel);
+  const [askDraft, setAskDraft] = useState<{ question: string; key: number } | null>(null);
 
   // ── Landing gate: show Onboarding until the user explicitly enters ──
   // Init from URL first (?v=1), fall back to localStorage.
@@ -371,6 +372,12 @@ export default function App() {
     setSidebarTab('ask');
   }, []);
 
+  const handleAskContext = useCallback((question: string) => {
+    setAskDraft({ question, key: Date.now() });
+    setSidebarOpen(true);
+    setSidebarTab('ask');
+  }, []);
+
   // Answers should surface the conversation: switch the sidebar to Ask.
   const handleAskAnswerWithFocus = useCallback(
     (ids: Set<string>) => {
@@ -556,6 +563,7 @@ export default function App() {
     showWikiHint: !wikiOnboarded,
     repoPath: queryRepoPath,
     model: queryModel,
+    onAskContext: handleAskContext,
   };
 
   const showWikiIntro = !wikiOnboarded && wikiStack.currentId === null;
@@ -680,8 +688,11 @@ export default function App() {
       )}
 
       {/* ── Main content: active view + reading panel ──────────────── */}
-      <div className="flex min-h-0 flex-1">
-        <main className="relative min-w-0 flex-1">
+      {/* overflow-hidden here is load-bearing: it clips any overflow from the
+          view/panel so a deep scrollIntoView/focus can't bubble up and scroll
+          the shell (which would push the header + tab bar off-screen). */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <main className="relative min-w-0 flex-1 overflow-hidden">
           <ActiveComponent {...viewProps} />
 
           {/* First-load wiki intro — invites opening a cluster wiki. */}
@@ -714,7 +725,7 @@ export default function App() {
             lets the user re-open it. */}
         {sidebarOpen ? (
           <div
-            className="relative hidden min-h-0 shrink-0 border-l border-ph-border bg-ph-surface lg:flex lg:flex-col"
+            className="relative hidden min-h-0 shrink-0 overflow-hidden border-l border-ph-border bg-ph-surface lg:flex lg:flex-col"
             style={{ width: sidebarWidth }}
           >
             {/* Drag handle on the left edge */}
@@ -752,8 +763,8 @@ export default function App() {
 
             {/* Tab bodies — keep both mounted so the Ask thread keeps its
                 history when switching to Reading and back. */}
-            <div className="min-h-0 flex-1">
-              <div className={sidebarTab === 'reading' ? 'h-full' : 'hidden'}>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <div className={sidebarTab === 'reading' ? 'h-full overflow-hidden' : 'hidden'}>
                 <ReadingPanel
                   data={data}
                   selectedNodeId={selectedNodeId}
@@ -763,13 +774,15 @@ export default function App() {
                   onOpenWiki={openWiki}
                 />
               </div>
-              <div className={sidebarTab === 'ask' ? 'h-full' : 'hidden'}>
+              <div className={sidebarTab === 'ask' ? 'h-full overflow-hidden' : 'hidden'}>
                 <AskBox
                   data={data}
                   repoPath={queryRepoPath}
                   model={queryModel}
                   onAnswer={handleAskAnswerWithFocus}
                   onClear={handleAskClear}
+                  initialQuestion={askDraft?.question}
+                  initialQuestionKey={askDraft?.key}
                 />
               </div>
             </div>

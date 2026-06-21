@@ -5,7 +5,7 @@ import path from "node:path";
 import type { QueryEvidence } from "./types.js";
 
 const MAX_FILE_BYTES = 220_000;
-const MAX_INDEXED_FILES = 8_000;
+const MAX_INDEXED_FILES = 37_500;
 const MAX_QUERY_TERMS = 12;
 const CACHE_TTL_MS = 60_000;
 

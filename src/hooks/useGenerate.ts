@@ -8,7 +8,7 @@ import {
 export type GenerateStatus = 'idle' | 'running' | 'done' | 'error' | 'cancelled';
 export type GenerateEventType = 'status' | 'stdout' | 'stderr' | 'codex' | 'client';
 
-const GENERATE_REQUEST_TIMEOUT_MS = 6 * 60 * 1000;
+const GENERATE_REQUEST_TIMEOUT_MS = 16 * 60 * 1000;
 const MAX_EVENT_LOG_ENTRIES = 40;
 const EVENT_STREAM_STATUS_CHECK_ATTEMPTS = 3;
 const EVENT_STREAM_STATUS_CHECK_DELAY_MS = 750;
@@ -237,7 +237,7 @@ export function useGenerate(onDone: () => void) {
           if (settled) return;
           settled = true;
           eventSource.close();
-          reject(new Error('Generate event stream timed out locally after 6 minutes.'));
+          reject(new Error('Generate event stream timed out locally after 16 minutes.'));
         }, GENERATE_REQUEST_TIMEOUT_MS);
 
         const close = () => {

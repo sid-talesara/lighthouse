@@ -3,7 +3,7 @@
 // This is now a CHAT THREAD against the map, not a one-shot search:
 //   • Each question + its answer stack as turns (user bubble + answer card).
 //   • The input is pinned at the bottom; history scrolls above it.
-//   • Keeps the existing cache-first / live (local Codex) logic in `askMap`.
+//   • Sends questions through the live local Codex / retrieval path in `askMap`.
 //   • Every answer still drives the global highlight set via `onAnswer`
 //     (highlight-on-answer), and "Clear" wipes the thread + highlights.
 //
@@ -16,6 +16,8 @@ import type { LighthouseData } from "../types/lighthouse";
 import { askMap, type AskResult } from "../lib/ask";
 import type { GenerateModel } from "../lib/generateOptions";
 import type { QueryConversationTurn, QuerySource, QueryVisualBlock } from "../types/query";
+import { FileReferenceList, FileViewerModal } from "./FileReference";
+import { MermaidDiagram } from "./MermaidDiagram";
 
 interface AskBoxProps {
   data: LighthouseData;
@@ -25,6 +27,8 @@ interface AskBoxProps {
   onAnswer: (ids: Set<string>) => void;
   /** Clear the global highlight set (called on "Clear conversation"). */
   onClear: () => void;
+  initialQuestion?: string;
+  initialQuestionKey?: number;
 }
 
 /** A single completed conversation turn. */
@@ -83,7 +87,7 @@ function conversationFromTurns(turns: Turn[]): QueryConversationTurn[] {
   ]);
 }
 
-export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps) {
+export function AskBox({ data, repoPath, model, onAnswer, onClear, initialQuestion, initialQuestionKey }: AskBoxProps) {
   const storageKey = useMemo(
     () => conversationStorageKey(data, repoPath),
     [data.repo.name, data.repo.path, repoPath],
@@ -99,6 +103,7 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastInitialQuestionKey = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     setTurns(readStoredTurns(storageKey));
@@ -107,6 +112,16 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
     setPendingQuestion(null);
     setLoading(false);
   }, [storageKey]);
+
+  useEffect(() => {
+    if (initialQuestionKey === undefined) return;
+    if (lastInitialQuestionKey.current === initialQuestionKey) return;
+    lastInitialQuestionKey.current = initialQuestionKey;
+    const next = initialQuestion?.trim();
+    if (!next) return;
+    setQuestion(next);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }, [initialQuestion, initialQuestionKey]);
 
   useEffect(() => {
     if (loadedStorageKey !== storageKey) return;
@@ -152,9 +167,6 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
 
       try {
         const ans = await askMap(trimmed, data, {
-          // Conversational free-text: let the cache answer demo questions when
-          // they match, otherwise fall through to live local Codex.
-          allowDemoCache: true,
           repoPath,
           model,
           conversation: conversationFromTurns(turns),
@@ -323,6 +335,8 @@ function UserBubble({ text }: { text: string }) {
 }
 
 function AnswerCard({ result }: { result: AskResult }) {
+  const [openFilePath, setOpenFilePath] = useState<string | null>(null);
+
   return (
     <div className="rounded-ph rounded-tl-sm border border-ph-border bg-ph-surface px-4 py-3.5">
       {/* Source badge */}
@@ -364,7 +378,11 @@ function AnswerCard({ result }: { result: AskResult }) {
       {result.visual_blocks.length > 0 && (
         <div className="mt-3 grid gap-2">
           {result.visual_blocks.slice(0, 2).map((block, index) => (
-            <VisualBlockView key={`${block.type}-${block.title}-${index}`} block={block} />
+            <VisualBlockView
+              key={`${block.type}-${block.title}-${index}`}
+              block={block}
+              onOpenFile={setOpenFilePath}
+            />
           ))}
         </div>
       )}
@@ -395,17 +413,7 @@ function AnswerCard({ result }: { result: AskResult }) {
           <div className="mb-1 font-sans text-label uppercase tracking-wider text-ph-ash">
             Evidence files
           </div>
-          <div className="flex flex-wrap gap-1">
-            {result.file_paths.slice(0, 8).map((path) => (
-              <span
-                key={path}
-                className="max-w-full truncate rounded-ph-sm border border-ph-border bg-ph-canvas px-2 py-0.5 font-mono text-code text-ph-body"
-                title={path}
-              >
-                {path}
-              </span>
-            ))}
-          </div>
+          <FileReferenceList paths={result.file_paths} onOpen={setOpenFilePath} limit={8} compact />
         </div>
       )}
 
@@ -421,6 +429,9 @@ function AnswerCard({ result }: { result: AskResult }) {
             </span>
           ))}
         </div>
+      )}
+      {openFilePath && (
+        <FileViewerModal path={openFilePath} onClose={() => setOpenFilePath(null)} />
       )}
     </div>
   );
@@ -440,7 +451,13 @@ function sourceBadgeClass(source: QuerySource): string {
   return "bg-ph-surface-soft text-ph-body";
 }
 
-function VisualBlockView({ block }: { block: QueryVisualBlock }) {
+function VisualBlockView({
+  block,
+  onOpenFile,
+}: {
+  block: QueryVisualBlock;
+  onOpenFile: (path: string) => void;
+}) {
   if (block.type === "change_review") {
     const before = block.items.find((item) => item.label.toLowerCase() === "before");
     const after = block.items.find((item) => item.label.toLowerCase() === "after");
@@ -498,7 +515,9 @@ function VisualBlockView({ block }: { block: QueryVisualBlock }) {
           <span>{block.title}</span>
           {block.format && <span className="text-ph-mute">{block.format}</span>}
         </div>
-        {block.source ? (
+        {block.source && block.format === "mermaid" ? (
+          <MermaidDiagram source={block.source} />
+        ) : block.source ? (
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-ph-sm border border-ph-border bg-ph-surface px-2 py-2 font-mono text-code leading-snug text-ph-body">
             {block.source}
           </pre>
@@ -520,9 +539,13 @@ function VisualBlockView({ block }: { block: QueryVisualBlock }) {
         )}
         {block.items.slice(0, 5).map((item, index) => (
           <div key={`${item.label}-${index}`} className="min-w-0">
-            <div className="truncate font-mono text-code text-ph-ink" title={item.path ?? item.nodeId ?? item.label}>
-              {item.label}
-            </div>
+            {item.path ? (
+              <FileReferenceList paths={[item.path]} onOpen={onOpenFile} limit={1} compact />
+            ) : (
+              <div className="truncate font-mono text-code text-ph-ink" title={item.nodeId ?? item.label}>
+                {item.label}
+              </div>
+            )}
             {item.value && (
               <div className="line-clamp-2 font-body text-label leading-snug text-ph-mute">
                 {item.value}

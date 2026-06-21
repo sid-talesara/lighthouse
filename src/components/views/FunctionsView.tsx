@@ -51,6 +51,7 @@ export function FunctionsView({
   onSelectNode,
   onHighlightNodes,
   onOpenWiki,
+  onAskContext,
 }: ViewProps) {
   const functions = data.functions ?? [];
   const calls = data.calls ?? [];
@@ -353,6 +354,7 @@ export function FunctionsView({
             data={data}
             selectedNodeId={selectedNodeId}
             onOpenWiki={onOpenWiki}
+            onAskContext={onAskContext}
           />
         </div>
 
@@ -366,6 +368,7 @@ export function FunctionsView({
             calleeFns={calleeFns}
             accentColor={moduleColor(detailFn.module_id)}
             onSelectFn={handleSelectFnById}
+            onAskContext={onAskContext}
             onClose={() => {
               setDetailFn(null);
               setSelectedFnId(null);
