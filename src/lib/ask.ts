@@ -1,5 +1,5 @@
 import type { LighthouseData } from '../types/lighthouse';
-import type { QueryResult } from '../types/query';
+import type { QueryConversationTurn, QueryResult } from '../types/query';
 import { CACHED_ANSWERS } from './askCache';
 
 const QUERY_ENDPOINT = '/api/query';
@@ -10,6 +10,7 @@ interface AskMapOptions {
   allowDemoCache?: boolean;
   repoPath?: string;
   model?: string;
+  conversation?: QueryConversationTurn[];
   signal?: AbortSignal;
 }
 
@@ -74,10 +75,12 @@ export async function askMap(
     data: LighthouseData;
     repoPath?: string;
     model?: string;
+    conversation?: QueryConversationTurn[];
   } = { question, data };
 
   if (options.repoPath?.trim()) body.repoPath = options.repoPath.trim();
   if (options.model?.trim()) body.model = options.model.trim();
+  if (options.conversation?.length) body.conversation = options.conversation.slice(-12);
 
   const response = await fetch(QUERY_ENDPOINT, {
     method: 'POST',

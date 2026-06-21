@@ -10,12 +10,12 @@
 // Layout: this component fills its container (it is rendered inside a
 // right-docked, resizable panel in App.tsx). It owns no docking chrome.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import type { LighthouseData } from "../types/lighthouse";
 import { askMap, type AskResult } from "../lib/ask";
 import type { GenerateModel } from "../lib/generateOptions";
-import type { QuerySource, QueryVisualBlock } from "../types/query";
+import type { QueryConversationTurn, QuerySource, QueryVisualBlock } from "../types/query";
 
 interface AskBoxProps {
   data: LighthouseData;
@@ -34,16 +34,102 @@ interface Turn {
   result: AskResult;
 }
 
+const MAX_STORED_TURNS = 20;
+const MAX_CONTEXT_TURNS = 6;
+
+function conversationStorageKey(data: LighthouseData, repoPath?: string): string {
+  const repoKey = repoPath?.trim() || data.repo.path || data.repo.name || "unknown";
+  return `lh-ask-thread:${repoKey}`;
+}
+
+function readStoredTurns(key: string): Turn[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Turn[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((turn) => {
+        return (
+          turn &&
+          typeof turn.id === "string" &&
+          typeof turn.question === "string" &&
+          turn.result &&
+          typeof turn.result.markdown === "string"
+        );
+      })
+      .slice(-MAX_STORED_TURNS);
+  } catch {
+    return [];
+  }
+}
+
+function compactContext(value: string, maxLength = 1_800): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= maxLength) return compact;
+  return `${compact.slice(0, maxLength - 1)}…`;
+}
+
+function conversationFromTurns(turns: Turn[]): QueryConversationTurn[] {
+  return turns.slice(-MAX_CONTEXT_TURNS).flatMap((turn) => [
+    {
+      role: "user" as const,
+      content: compactContext(turn.question, 700),
+    },
+    {
+      role: "assistant" as const,
+      content: compactContext(turn.result.markdown),
+    },
+  ]);
+}
+
 export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps) {
+  const storageKey = useMemo(
+    () => conversationStorageKey(data, repoPath),
+    [data.repo.name, data.repo.path, repoPath],
+  );
   const [question, setQuestion] = useState("");
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [turns, setTurns] = useState<Turn[]>(() => readStoredTurns(storageKey));
+  const [loadedStorageKey, setLoadedStorageKey] = useState(storageKey);
   const [loading, setLoading] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // The question currently in-flight (shown as an optimistic user bubble).
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setTurns(readStoredTurns(storageKey));
+    setLoadedStorageKey(storageKey);
+    setError(null);
+    setPendingQuestion(null);
+    setLoading(false);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (loadedStorageKey !== storageKey) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(turns.slice(-MAX_STORED_TURNS)));
+    } catch {
+      // Ignore localStorage quota/private-mode failures; the live thread still works.
+    }
+  }, [loadedStorageKey, storageKey, turns]);
+
+  useEffect(() => {
+    if (!loading) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1_000);
+
+    return () => window.clearInterval(interval);
+  }, [loading]);
 
   // Auto-scroll the thread to the newest turn / pending bubble.
   useEffect(() => {
@@ -71,6 +157,7 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
           allowDemoCache: true,
           repoPath,
           model,
+          conversation: conversationFromTurns(turns),
           signal: controller.signal,
         });
         setTurns((prev) => [
@@ -90,7 +177,7 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
         setPendingQuestion(null);
       }
     },
-    [data, model, onAnswer, repoPath]
+    [data, model, onAnswer, repoPath, turns]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -116,6 +203,7 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
   };
 
   const isEmpty = turns.length === 0 && !pendingQuestion && !error;
+  const showClear = turns.length > 0 || Boolean(error) || Boolean(pendingQuestion);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -127,7 +215,7 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
         <span className="font-display text-heading-sm font-bold text-ph-ink">
           Ask the map
         </span>
-        {turns.length > 0 && (
+        {showClear && (
           <button
             type="button"
             onClick={handleClear}
@@ -171,7 +259,8 @@ export function AskBox({ data, repoPath, model, onAnswer, onClear }: AskBoxProps
               <div className="flex items-center gap-2 rounded-ph border border-ph-border bg-ph-surface px-4 py-3">
                 <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-ph-border border-t-ph-yellow" />
                 <span className="font-body text-body-sm text-ph-mute">
-                  Searching the map…
+                  Retrieving repo evidence and running Local Codex
+                  {elapsedSeconds > 0 ? ` (${elapsedSeconds}s)` : "…"}
                 </span>
               </div>
             )}
