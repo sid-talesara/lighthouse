@@ -11,9 +11,14 @@
  *  - No transform/translate/scale animations on outer wrapper
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import type { FunctionNode, LighthouseNode, Service } from '../../types/lighthouse';
 import { CodeViewer } from '../CodeViewer';
+
+const PANEL_WIDTH_KEY = 'lh_fn_panel_width';
+const DEFAULT_WIDTH = 480;
+const MIN_WIDTH = 320;
+const MAX_WIDTH = 780;
 
 // ── Service kind accent colors ─────────────────────────────────────────────────
 
@@ -140,19 +145,80 @@ export function FunctionDetailPanel({
 
   const serviceColor = service ? svcColor(service.kind) : '#9B9C92';
 
+  // ── Resize state ──────────────────────────────────────────────────────────
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(PANEL_WIDTH_KEY);
+      if (stored) {
+        const v = parseInt(stored, 10);
+        if (!isNaN(v) && v >= MIN_WIDTH && v <= MAX_WIDTH) return v;
+      }
+    } catch {}
+    return DEFAULT_WIDTH;
+  });
+
+  // Persist width changes
+  useEffect(() => {
+    try { localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth)); } catch {}
+  }, [panelWidth]);
+
+  const dragging = useRef(false);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
+
+  const handleDragMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = panelWidth;
+
+    const onMove = (mv: MouseEvent) => {
+      if (!dragging.current) return;
+      // Drag handle is on the LEFT edge — dragging left increases width
+      const delta = dragStartX.current - mv.clientX;
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragStartWidth.current + delta));
+      setPanelWidth(next);
+    };
+    const onUp = () => {
+      dragging.current = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [panelWidth]);
+
   return (
     <div style={{
-      width: 340,
-      minWidth: 300,
-      maxWidth: 380,
+      width: panelWidth,
+      minWidth: MIN_WIDTH,
+      maxWidth: MAX_WIDTH,
       height: '100%',
       background: '#FFFFFF',
       borderLeft: '1px solid #BFC1B7',
       display: 'flex',
-      flexDirection: 'column',
+      flexDirection: 'row',
       overflow: 'hidden',
       flexShrink: 0,
+      position: 'relative',
     }}>
+      {/* ── Drag handle (left edge) ── */}
+      <div
+        onMouseDown={handleDragMouseDown}
+        style={{
+          width: 5,
+          flexShrink: 0,
+          cursor: 'col-resize',
+          background: 'transparent',
+          transition: 'background 100ms ease-out',
+          zIndex: 10,
+        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = '#BFC1B7'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      />
+
+      {/* ── Inner panel content ── */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* ── Header ── */}
       <div style={{
         display: 'flex',
@@ -389,11 +455,14 @@ export function FunctionDetailPanel({
           <SectionLabel>Source file</SectionLabel>
           {codeFilePath ? (
             <>
-              <CodeViewer
-                path={codeFilePath}
-                maxHeight="260px"
-                className=""
-              />
+              {/* Wrap in overflowX:auto so long lines scroll horizontally */}
+              <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+                <CodeViewer
+                  path={codeFilePath}
+                  maxHeight="320px"
+                  className=""
+                />
+              </div>
               <div style={{
                 marginTop: 5,
                 fontFamily: '"IBM Plex Mono", monospace',
@@ -416,6 +485,8 @@ export function FunctionDetailPanel({
             </div>
           )}
         </div>
+      </div>
+      {/* end inner panel content */}
       </div>
     </div>
   );

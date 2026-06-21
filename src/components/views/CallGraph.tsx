@@ -394,6 +394,8 @@ function CallGraphInner({
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RFNode>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<RFEdge>([]);
   const layoutDone = useRef(false);
+  // Track the sorted fn-id string so we can re-layout when the visible set changes
+  const layoutKey = useRef<string>('');
 
   // Build service lookup: module_id → Service
   const moduleToService = useMemo(() => {
@@ -523,10 +525,12 @@ function CallGraphInner({
     [calls, functions, selectedFnId, relatedFnIds, moduleToService],
   );
 
-  // Run ELK on mount
+  // Run ELK layout whenever the set of visible functions changes
   useEffect(() => {
-    if (layoutDone.current) return;
+    const newKey = [...functions.map((f) => f.id)].sort().join(',');
+    if (layoutDone.current && layoutKey.current === newKey) return;
     layoutDone.current = true;
+    layoutKey.current = newKey;
 
     const fnIdSet = new Set(functions.map((f) => f.id));
 
@@ -593,7 +597,7 @@ function CallGraphInner({
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [functions]);
 
   // Update node states on selection changes (no re-layout)
   useEffect(() => {
@@ -612,7 +616,7 @@ function CallGraphInner({
     );
     setRfEdges(buildEdges(fnIdSet));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedFnId, selectedNodeId]);
+  }, [selectedFnId, selectedNodeId, functions]);
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: RFNode) => {
