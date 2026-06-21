@@ -4,15 +4,16 @@
  * This is the single source of truth for `activeStep` and play state. It wires
  * three synced surfaces from the same step value so they can never drift:
  *
- *   1. FlowTrace   — the animated SVG map; a pulse travels node→node and the
- *                    active node pops with ph-yellow.
+ *   1. FlowTrace    — the animated SVG module-map; a pulse travels node→node
+ *                     and the active node pops with ph-yellow.
  *   2. SequenceRail — a sequence-diagram rail; the active step's row glows.
- *   3. Detail strip — description, node label, owning module/cluster + a
- *                    relevant function name for the active step.
+ *   3. Detail strip — full plain-language description, module name, owning
+ *                     service/cluster, transition verb, and file path.
  *
- * Controls: Prev / Play-Pause / Next, ~1s auto-advance. The interval lives in a
- * ref and is torn down on pause, unmount, flow change, and end-of-flow, so no
- * timer ever leaks and the pulse never teleports.
+ * At the top a synthesized one-liner tells the viewer what the flow does
+ * end-to-end before they start watching.
+ *
+ * Controls: Prev / Play-Pause / Next, ~1.1s auto-advance.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,6 +24,8 @@ import {
   buildLookups,
   deriveParticipants,
   pickFunctionForModule,
+  synthesizeFlowOneLiner,
+  transitionVerb,
 } from './flowEngine';
 
 const PLAY_INTERVAL_MS = 1100;
@@ -129,12 +132,29 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
     [flow, lookups],
   );
 
+  // ── Flow one-liner: synthesized end-to-end summary ────────────────────────
+  const oneLiner = useMemo(
+    () => synthesizeFlowOneLiner(flow, lookups.nodeById, lookups.clusterById),
+    [flow, lookups],
+  );
+
   // ── Active step facts for the detail strip ────────────────────────────────
   const activeStep = flow.steps[activeIndex];
   const activeNode = activeStep ? lookups.nodeById.get(activeStep.node) : undefined;
   const activeCluster = activeNode ? lookups.clusterById.get(activeNode.parent) : undefined;
   const activeFn: FunctionNode | undefined = activeStep
     ? pickFunctionForModule(data.functions, activeStep.node)
+    : undefined;
+
+  // ── Transition verb: what connects the previous step to this one ──────────
+  const prevStepNode = activeIndex > 0 ? flow.steps[activeIndex - 1]?.node : undefined;
+  const verb = transitionVerb(prevStepNode, activeStep?.node, data.edges);
+
+  // ── Next module (for "then calls →") label ────────────────────────────────
+  const nextStep = flow.steps[activeIndex + 1];
+  const nextNode = nextStep ? lookups.nodeById.get(nextStep.node) : undefined;
+  const nextVerb = nextStep
+    ? transitionVerb(activeStep?.node, nextStep.node, data.edges)
     : undefined;
 
   // ── Forced step from parent (incoming selectedNodeId) ─────────────────────
@@ -158,7 +178,7 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, flow]);
 
-  // ── Auto-play interval (ref-stored, clean teardown) ───────────────────────
+  // ── Auto-play interval ────────────────────────────────────────────────────
   const totalStepsRef = useRef(totalSteps);
   useEffect(() => {
     totalStepsRef.current = totalSteps;
@@ -180,7 +200,7 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
             intervalRef.current = null;
           }
           setIsPlaying(false);
-          return prev; // stay on last step
+          return prev;
         }
         return next;
       });
@@ -231,13 +251,71 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
-      {/* ── Controls bar ────────────────────────────────────────────────── */}
+
+      {/* ── Flow one-liner (what this flow does end-to-end) ─────────────── */}
+      <div
+        style={{
+          padding: '10px 20px',
+          background: '#DCEAF6',
+          borderBottom: '1px solid #BFC1B7',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 10,
+        }}
+      >
+        {/* Info icon */}
+        <svg
+          width={16}
+          height={16}
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden
+          style={{ flexShrink: 0, marginTop: 1 }}
+        >
+          <circle cx={8} cy={8} r={7} stroke="#1078A3" strokeWidth={1.5} />
+          <text
+            x={8}
+            y={12}
+            textAnchor="middle"
+            fontSize={10}
+            fontWeight={700}
+            fontFamily="Nunito, system-ui"
+            fill="#1078A3"
+          >
+            i
+          </text>
+        </svg>
+        <div>
+          <span
+            style={{
+              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+              fontSize: 13,
+              color: '#1078A3',
+              lineHeight: 1.5,
+            }}
+          >
+            {oneLiner}
+          </span>
+          <span
+            style={{
+              display: 'block',
+              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+              fontSize: 11,
+              color: '#5A9DC0',
+              marginTop: 2,
+            }}
+          >
+            Press play or use Prev / Next to walk through each step. The map and sequence diagram stay in sync.
+          </span>
+        </div>
+      </div>
+
+      {/* ── Controls bar ──────────────────────────────────────────────────── */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          borderTop: '1px solid #BFC1B7',
           borderBottom: '1px solid #BFC1B7',
           background: '#FFFFFF',
           padding: '10px 20px',
@@ -251,18 +329,20 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
             letterSpacing: '0.05em',
             color: '#6C6E63',
             marginRight: 4,
+            flexShrink: 0,
           }}
         >
           STEP {activeIndex + 1} / {totalSteps}
         </span>
 
         {/* Progress dots */}
-        <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', flex: 1, alignItems: 'center', gap: 5 }}>
           {flow.steps.map((_, i) => (
             <button
               key={i}
               onClick={() => goToStep(i)}
               aria-label={`Go to step ${i + 1}`}
+              title={`Step ${i + 1}: ${flow.steps[i]?.description ?? ''}`}
               style={{
                 width: i === activeIndex ? 20 : 8,
                 height: 8,
@@ -272,6 +352,7 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
                 transition: 'all 200ms ease-out',
                 backgroundColor:
                   i === activeIndex ? '#F7A501' : i < activeIndex ? '#BFC1B7' : '#E5E7E0',
+                flexShrink: 0,
               }}
             />
           ))}
@@ -321,26 +402,40 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
 
       {/* ── Two synced surfaces ─────────────────────────────────────────── */}
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Map trace */}
-        <FlowTrace
-          flow={flow}
-          participants={participants}
-          edges={data.edges}
-          activeStep={activeIndex}
-          onSelectParticipant={selectParticipant}
-        />
 
-        {/* Detail strip */}
+        {/* ── Active step detail strip ─────────────────────────────────── */}
         <div
           style={{
             background: '#FFFFFF',
             border: '1px solid #BFC1B7',
             borderLeft: '3px solid #F7A501',
             borderRadius: 6,
-            padding: '12px 16px',
+            padding: '14px 16px',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Step number + module name + cluster badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+            {/* Step number pill */}
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 22,
+                height: 22,
+                borderRadius: '50%',
+                background: '#F7A501',
+                fontFamily: '"IBM Plex Mono", monospace',
+                fontSize: 10,
+                fontWeight: 700,
+                color: '#23251D',
+                flexShrink: 0,
+              }}
+            >
+              {activeIndex + 1}
+            </span>
+
+            {/* Module name (the "who handles this") */}
             <span
               style={{
                 fontFamily: '"Nunito", system-ui, sans-serif',
@@ -351,6 +446,8 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
             >
               {activeNode?.label ?? activeStep?.node ?? '—'}
             </span>
+
+            {/* Owning cluster/service badge */}
             {activeCluster && (
               <span
                 style={{
@@ -370,6 +467,8 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
                 {activeCluster.label}
               </span>
             )}
+
+            {/* Relevant function name (if available) */}
             {activeFn && (
               <code
                 style={{
@@ -385,25 +484,103 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
               </code>
             )}
           </div>
+
+          {/* "incoming from" transition label — tells you the handoff */}
+          {activeIndex > 0 && prevStepNode && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                marginBottom: 6,
+              }}
+            >
+              <svg width={12} height={12} viewBox="0 0 12 12" fill="none" aria-hidden>
+                <path d="M2 6h8M7 3l3 3-3 3" stroke="#9B9C92" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span
+                style={{
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  fontSize: 11,
+                  color: '#9B9C92',
+                  fontStyle: 'italic',
+                }}
+              >
+                {lookups.nodeById.get(prevStepNode)?.label ?? prevStepNode}{' '}
+                <strong style={{ color: '#6C6E63', fontStyle: 'normal' }}>{verb}</strong>{' '}
+                {activeNode?.label ?? activeStep?.node}
+              </span>
+            </div>
+          )}
+
+          {/* What happens — the full plain-language description */}
           <p
             style={{
-              margin: '6px 0 0',
+              margin: '0 0 0',
               fontSize: 13,
-              lineHeight: 1.5,
-              color: '#4D4F46',
+              lineHeight: 1.6,
+              color: '#23251D',
               fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+              fontWeight: 400,
             }}
           >
             {activeStep?.description ?? 'No step selected.'}
           </p>
+
+          {/* "then calls →" — next handoff */}
+          {nextStep && nextNode && nextVerb && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: '1px solid #DCDFD2',
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  fontSize: 11,
+                  color: '#9B9C92',
+                }}
+              >
+                then{' '}
+                <strong style={{ color: '#6C6E63' }}>{nextVerb}</strong>
+                {' '}→{' '}
+                <span style={{ color: '#2C84E0', fontWeight: 600 }}>
+                  {nextNode.label}
+                </span>
+              </span>
+              <span
+                style={{
+                  fontFamily: '"IBM Plex Mono", monospace',
+                  fontSize: 9,
+                  color: '#9B9C92',
+                  marginLeft: 4,
+                  background: '#E5E7E0',
+                  borderRadius: 3,
+                  padding: '1px 5px',
+                }}
+              >
+                step {activeIndex + 2}
+              </span>
+            </div>
+          )}
+
+          {/* File path */}
           {activeNode?.path && (
             <code
               style={{
                 display: 'inline-block',
-                marginTop: 6,
+                marginTop: 8,
                 fontFamily: '"IBM Plex Mono", monospace',
-                fontSize: 11,
+                fontSize: 10,
                 color: '#9B9C92',
+                background: '#F0F0EC',
+                borderRadius: 3,
+                padding: '2px 6px',
               }}
             >
               {activeNode.path}
@@ -411,7 +588,16 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
           )}
         </div>
 
-        {/* Sequence rail */}
+        {/* ── Map trace ─────────────────────────────────────────────────── */}
+        <FlowTrace
+          flow={flow}
+          participants={participants}
+          edges={data.edges}
+          activeStep={activeIndex}
+          onSelectParticipant={selectParticipant}
+        />
+
+        {/* ── Sequence rail ─────────────────────────────────────────────── */}
         <div
           style={{
             background: '#FFFFFF',
@@ -420,28 +606,12 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
             overflow: 'hidden',
           }}
         >
-          <div
-            style={{
-              padding: '8px 14px',
-              borderBottom: '1px solid #DCDFD2',
-              fontFamily: '"Nunito", system-ui, sans-serif',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              color: '#9B9C92',
-            }}
-          >
-            Sequence — modules over time
-          </div>
-          <div style={{ padding: '4px 8px 8px' }}>
-            <SequenceRail
-              flow={flow}
-              participants={participants}
-              activeStep={activeIndex}
-              onSelectStep={goToStep}
-            />
-          </div>
+          <SequenceRail
+            flow={flow}
+            participants={participants}
+            activeStep={activeIndex}
+            onSelectStep={goToStep}
+          />
         </div>
       </div>
     </div>

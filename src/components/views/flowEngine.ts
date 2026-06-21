@@ -232,3 +232,72 @@ export function clusterColor(clusterId: string | undefined): string {
   }
   return LANE_PALETTE[h % LANE_PALETTE.length];
 }
+
+// ─── Flow one-liner synthesis ─────────────────────────────────────────────────
+
+/**
+ * Synthesizes a plain-English one-liner describing what the flow does end-to-end.
+ * Format: "[first module] → ... → [last module]: [what changes hands]"
+ * This tells the viewer the story before they start watching.
+ */
+export function synthesizeFlowOneLiner(
+  flow: Flow,
+  nodeById: Map<string, LighthouseNode>,
+  clusterById: Map<string, Cluster>,
+): string {
+  const steps = flow.steps;
+  if (steps.length === 0) return flow.name;
+
+  // Build unique ordered module labels
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const step of steps) {
+    const node = nodeById.get(step.node);
+    const label = node?.label ?? step.node;
+    if (!seen.has(step.node)) {
+      seen.add(step.node);
+      labels.push(label);
+    }
+  }
+
+  if (labels.length === 1) {
+    return `Everything happens in ${labels[0]}.`;
+  }
+
+  // First → last with cluster context
+  const firstNode = nodeById.get(steps[0].node);
+  const lastNode = nodeById.get(steps[steps.length - 1].node);
+  const firstCluster = firstNode ? clusterById.get(firstNode.parent) : undefined;
+  const lastCluster = lastNode ? clusterById.get(lastNode.parent) : undefined;
+
+  const first = firstCluster
+    ? `${firstNode?.label ?? steps[0].node} (${firstCluster.label})`
+    : (firstNode?.label ?? steps[0].node);
+  const last = lastCluster
+    ? `${lastNode?.label ?? steps[steps.length - 1].node} (${lastCluster.label})`
+    : (lastNode?.label ?? steps[steps.length - 1].node);
+
+  return `From ${first} → through ${labels.length - 2 > 0 ? `${labels.length - 2} intermediate module${labels.length - 2 > 1 ? 's' : ''} →` : ''} ${last}. ${steps.length} steps total.`.replace(/→ \./g, '.');
+}
+
+// ─── Transition verb resolver ─────────────────────────────────────────────────
+
+/**
+ * Returns a human-readable transition verb for the handoff from one step to the
+ * next, based on the edge kind (if a real edge exists) or a context heuristic.
+ */
+export function transitionVerb(
+  fromNodeId: string | undefined,
+  toNodeId: string | undefined,
+  edges: Edge[],
+): string {
+  if (!fromNodeId || !toNodeId) return 'flows to';
+  const hit = findEdge(edges, fromNodeId, toNodeId);
+  if (!hit) return 'passes to';
+  switch (hit.edge.kind) {
+    case 'calls': return 'calls';
+    case 'imports': return 'uses';
+    case 'depends': return 'depends on';
+    default: return 'sends to';
+  }
+}

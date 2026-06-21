@@ -3,14 +3,14 @@
  *
  * Features:
  *  - Flow selector tabs (one tab per flow in data.flows).
- *  - For the selected flow: renders an animated vertical timeline via
- *    FlowPlayer with Prev / Next / Play controls.
+ *  - For the selected flow: a one-liner summary of what the flow does, then
+ *    an animated walkthrough via FlowPlayer with Prev / Next / Play controls.
  *  - Cross-view linking:
  *      • As the active step changes → calls onSelectNode(step.node) and
  *        onHighlightNodes(new Set([step.node])).
  *      • If selectedNodeId (from another view) matches a step in the current
  *        flow → the player jumps to that step.
- *  - PostHog-inspired: cream canvas, white cards, olive borders, yellow accent.
+ *  - PostHog-flat styling: cream canvas, white cards, olive borders, yellow accent.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -61,8 +61,16 @@ function EmptyState() {
             lineHeight: 1.5,
           }}
         >
-          Add flows to <code style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: 12 }}>data.json</code> to
-          see animated walkthroughs here.
+          Add flows to{' '}
+          <code
+            style={{
+              fontFamily: '"IBM Plex Mono", monospace',
+              fontSize: 12,
+            }}
+          >
+            data.json
+          </code>{' '}
+          to see animated walkthroughs here.
         </p>
       </div>
     </div>
@@ -101,7 +109,7 @@ export function FlowsView({
       lastEmittedNodeRef.current = nodeId;
       onSelectNode(nodeId);
       onHighlightNodes(new Set([nodeId]));
-      void stepIndex; // used by FlowPlayer internally; param kept for future use
+      void stepIndex;
     },
     [onSelectNode, onHighlightNodes],
   );
@@ -114,7 +122,6 @@ export function FlowsView({
       onSelectNode(flow.steps[0].node);
       onHighlightNodes(new Set([flow.steps[0].node]));
     }
-    // Only re-run when the active flow index changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFlowIndex]);
 
@@ -138,10 +145,18 @@ export function FlowsView({
         style={{
           background: '#FFFFFF',
           borderBottom: '1px solid #BFC1B7',
-          padding: '16px 20px 0',
+          padding: '14px 20px 0',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
+        {/* Title row */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 10,
+            marginBottom: 10,
+          }}
+        >
           <h2
             style={{
               fontSize: 16,
@@ -163,7 +178,7 @@ export function FlowsView({
               fontFamily: '"Nunito", system-ui, sans-serif',
             }}
           >
-            watch execution move through the system
+            step-by-step execution walkthroughs
           </span>
         </div>
 
@@ -184,7 +199,9 @@ export function FlowsView({
                 style={{
                   padding: '8px 14px',
                   border: 'none',
-                  borderBottom: isActive ? '2px solid #F7A501' : '2px solid transparent',
+                  borderBottom: isActive
+                    ? '2px solid #F7A501'
+                    : '2px solid transparent',
                   background: 'transparent',
                   cursor: 'pointer',
                   fontSize: 13,
@@ -236,6 +253,7 @@ export function FlowsView({
                 justifyContent: 'space-between',
                 padding: '14px 20px',
                 borderBottom: '1px solid #DCDFD2',
+                background: '#FAFAF7',
               }}
             >
               <h3
@@ -278,20 +296,6 @@ export function FlowsView({
             />
           </div>
         ) : null}
-
-        {/* Ghost hint below — PostHog style */}
-        <p
-          style={{
-            textAlign: 'center',
-            fontSize: 11,
-            fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-            color: '#BFC1B7',
-            padding: '0 20px 24px',
-            margin: 0,
-          }}
-        >
-          ▶ play to watch the pulse travel   click a node or sequence row to jump   syncs the map ↗
-        </p>
       </div>
     </div>
   );
