@@ -16,13 +16,14 @@
  *   onHighlightNodes: fires with connected module ids so the map co-highlights.
  */
 
-import { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import type { ViewProps } from './viewContract';
 import type { DbTable, LighthouseNode } from '../../types/lighthouse';
 import { ErDiagram } from './ErDiagram';
 import { buildGroups, GroupCard } from './DbGroups';
 import { CodeViewer } from '../CodeViewer';
 import { MigrationsTimeline } from './MigrationsTimeline';
+import { useDbPanelWidth, clampDbPanelWidth } from './useDbPanelWidth';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,9 @@ interface TableDetailPanelProps {
   table: DbTable;
   nodes: LighthouseNode[];
   accentMap: Map<string, string>;
+  width: number;
+  onResizeStart: (e: React.PointerEvent) => void;
+  isResizing: boolean;
   onClose: () => void;
   onFocusER: () => void;
   onSelectModule: (id: string) => void;
@@ -88,6 +92,9 @@ function TableDetailPanel({
   table,
   nodes,
   accentMap,
+  width,
+  onResizeStart,
+  isResizing,
   onClose,
   onFocusER,
   onSelectModule,
@@ -107,14 +114,16 @@ function TableDetailPanel({
         top: 0,
         right: 0,
         bottom: 0,
-        width: 300,
+        width,
         background: '#FFFFFF',
         borderLeft: '1px solid #BFC1B7',
         display: 'flex',
         flexDirection: 'column',
         zIndex: 20,
         fontFamily: '"Nunito", system-ui, sans-serif',
-        animation: 'dbPanelIn 180ms ease-out both',
+        // Skip the slide-in animation while dragging so the panel tracks the
+        // pointer 1:1 instead of easing on every width change.
+        animation: isResizing ? 'none' : 'dbPanelIn 180ms ease-out both',
         overflow: 'hidden',
       }}
     >
@@ -124,6 +133,34 @@ function TableDetailPanel({
           to   { opacity: 1; transform: translateX(0); }
         }
       `}</style>
+
+      {/* ── resize handle (left edge) ── */}
+      <div
+        onPointerDown={onResizeStart}
+        title="Drag to resize"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: -3,
+          bottom: 0,
+          width: 7,
+          cursor: 'col-resize',
+          zIndex: 30,
+          touchAction: 'none',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 3,
+            bottom: 0,
+            width: 2,
+            background: isResizing ? '#F7A501' : 'transparent',
+            transition: 'background 120ms ease-out',
+          }}
+        />
+      </div>
 
       {/* accent top bar */}
       <div style={{ height: 3, background: accent, flexShrink: 0 }} />
@@ -673,6 +710,37 @@ export function DatabaseView({
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
   const [erShowAll, setErShowAll] = useState(false);
 
+  // ── resizable detail panel ────────────────────────────────────────────────
+  const { width: panelWidth, setWidth: setPanelWidth } = useDbPanelWidth();
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const handleResizeStart = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      resizeRef.current = { startX: e.clientX, startWidth: panelWidth };
+      setIsResizing(true);
+
+      const onMove = (ev: PointerEvent) => {
+        const ctx = resizeRef.current;
+        if (!ctx) return;
+        // Panel is anchored to the right edge: dragging left (smaller clientX)
+        // widens it.
+        const delta = ctx.startX - ev.clientX;
+        setPanelWidth(clampDbPanelWidth(ctx.startWidth + delta));
+      };
+      const onUp = () => {
+        resizeRef.current = null;
+        setIsResizing(false);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [panelWidth, setPanelWidth],
+  );
+
   // ── table selection ───────────────────────────────────────────────────────
   const [localSelectedId, setLocalSelectedId] = useState<string | null>(null);
 
@@ -981,8 +1049,9 @@ export function DatabaseView({
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden',
-                marginRight: panelOpen ? 300 : 0,
-                transition: 'margin-right 180ms ease-out',
+                marginRight: panelOpen ? panelWidth : 0,
+                // Don't animate the margin while dragging or it lags the panel.
+                transition: isResizing ? 'none' : 'margin-right 180ms ease-out',
               }}
             >
               {viewMode === 'overview' ? (
@@ -1039,6 +1108,9 @@ export function DatabaseView({
                 table={selectedTable}
                 nodes={nodes}
                 accentMap={accentMap}
+                width={panelWidth}
+                onResizeStart={handleResizeStart}
+                isResizing={isResizing}
                 onClose={handleClosePanel}
                 onFocusER={handleFocusER}
                 onSelectModule={handleSelectModule}

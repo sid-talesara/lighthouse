@@ -344,7 +344,12 @@ function ErDiagramInner({ tables, selectedTableId, onSelectTable }: ErDiagramInn
 
   // Build raw nodes + edges, then layout
   useEffect(() => {
-    if (tables.length === 0) return;
+    if (tables.length === 0) {
+      // Clear any stale nodes/edges (e.g. switching to an empty focus set).
+      setNodes([]);
+      setEdges([]);
+      return;
+    }
 
     const rawNodes: Node[] = tables.map((t) => ({
       id: t.id,
@@ -360,10 +365,17 @@ function ErDiagramInner({ tables, selectedTableId, onSelectTable }: ErDiagramInn
       } satisfies TableNodeData,
     }));
 
+    // Set of node ids that actually exist in this (possibly filtered) view.
+    // In Focus mode the table set is a subset, so an FK may point at a table
+    // that is NOT rendered. ELK rejects the whole graph if an edge references
+    // a missing shape ("Referenced shape does not exist"), which blanks the
+    // diagram. Only emit edges whose source AND target are both present.
+    const presentIds = new Set(tables.map((t) => t.id));
+
     const rawEdges: Edge[] = [];
     for (const t of tables) {
       for (const col of t.columns) {
-        if (col.fk) {
+        if (col.fk && presentIds.has(col.fk)) {
           rawEdges.push({
             id: `${t.id}__${col.name}__${col.fk}`,
             source: t.id,
@@ -392,10 +404,25 @@ function ErDiagramInner({ tables, selectedTableId, onSelectTable }: ErDiagramInn
 
     // Reset fitDone so the fitView effect fires after ELK positions arrive.
     fitDone.current = false;
-    runElkLayout(rawNodes, rawEdges).then((laid) => {
-      setNodes(laid);
-      setEdges(rawEdges);
-    });
+    let cancelled = false;
+    runElkLayout(rawNodes, rawEdges)
+      .then((laid) => {
+        if (cancelled) return;
+        setNodes(laid);
+        setEdges(rawEdges);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // ELK can reject (e.g. a malformed graph). Don't leave the canvas
+        // silently blank — fall back to un-laid-out nodes so the user still
+        // sees the tables, and surface the cause for debugging.
+        console.error('[ErDiagram] ELK layout failed, rendering unlaid nodes:', err);
+        setNodes(rawNodes);
+        setEdges(rawEdges);
+      });
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tables]);
 
