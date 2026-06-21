@@ -64,6 +64,7 @@ RULES
 export function buildQueryPrompt(input: {
   question: string;
   evidenceJson: string;
+  conversationJson?: string;
 }): string {
   return `You are answering a Lighthouse Ask question for a local codebase map.
 
@@ -72,6 +73,9 @@ Use the ranked evidence below and, when useful, inspect the repository in read-o
 
 QUESTION
 ${input.question}
+
+RECENT CONVERSATION
+${input.conversationJson ?? "[]"}
 
 RANKED MAP EVIDENCE
 ${input.evidenceJson}
@@ -107,7 +111,7 @@ RULES
 1. Keep the answer concise and grounded in the evidence.
 2. Include only ids that appear in the ranked evidence.
 3. Prefer concrete files, modules, flows, and sections over generic advice.
-4. If the evidence is incomplete, say what the current map shows instead of inventing details.
+4. Use the recent conversation for follow-up intent and pronoun references, but ground factual claims in the ranked evidence or files you inspect.
 5. Evidence may include "Local repo retrieval match" snippets with line numbers. Treat those snippets as primary retrieved code evidence, and inspect 1-3 of the most relevant paths in read-only mode when the answer depends on exact implementation details.
 6. If ranked evidence is empty but the question is about repository code, inspect the repository in read-only mode and answer from concrete files. Use empty highlight_ids and evidence_ids when no map ids match.
 7. If ranked evidence is empty and the question is generic chat or not about the repository, answer briefly as the local codebase assistant and ask for a repository-specific question. Do not invent files or capabilities.
