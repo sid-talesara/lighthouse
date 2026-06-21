@@ -67,6 +67,11 @@ export interface PullRequestTouch {
   change: ChangeKind;
 }
 
+export interface PullRequestFile {
+  path: string;
+  change: ChangeKind;
+}
+
 export interface PullRequest {
   id: string;
   title: string;
@@ -77,6 +82,8 @@ export interface PullRequest {
   touched: PullRequestTouch[];
   additions?: number;
   deletions?: number;
+  // Per-PR changed files — powers a file-level review UI.
+  files?: PullRequestFile[];
 }
 
 // ── Database schema dimension ─────────────────────────────────────────────────
@@ -93,6 +100,16 @@ export interface DbTable {
   name: string;
   module_id?: string; // owning node id
   columns: DbColumn[];
+  summary?: string;
+}
+
+// ── Database migrations dimension ─────────────────────────────────────────────
+
+export interface DbMigration {
+  id: string;
+  name: string;
+  file: string; // repo-relative path to the migration file
+  date?: string; // ISO date string when parseable
   summary?: string;
 }
 
@@ -153,6 +170,7 @@ export interface LighthouseData {
   // New optional dimensions (kept optional so existing data stays valid).
   pullRequests?: PullRequest[];
   dbTables?: DbTable[];
+  dbMigrations?: DbMigration[];
   functions?: FunctionNode[];
   calls?: CallEdge[];
   services?: Service[];

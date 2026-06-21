@@ -61,6 +61,11 @@ const PullRequestTouchSchema = z.object({
   change: ChangeKind,
 });
 
+const PullRequestFileSchema = z.object({
+  path: NonEmptyString,
+  change: ChangeKind,
+});
+
 const PullRequestSchema = z.object({
   id: NonEmptyString,
   title: NonEmptyString,
@@ -71,6 +76,15 @@ const PullRequestSchema = z.object({
   touched: z.array(PullRequestTouchSchema),
   additions: z.number().int().nonnegative().optional(),
   deletions: z.number().int().nonnegative().optional(),
+  files: z.array(PullRequestFileSchema).optional(),
+});
+
+const DbMigrationSchema = z.object({
+  id: NonEmptyString,
+  name: NonEmptyString,
+  file: NonEmptyString,
+  date: z.string().optional(),
+  summary: z.string().optional(),
 });
 
 const DbColumnSchema = z.object({
@@ -166,6 +180,7 @@ export const LighthouseDataSchema = z
     files: z.array(FileInventoryEntrySchema).optional(),
     pullRequests: z.array(PullRequestSchema).optional(),
     dbTables: z.array(DbTableSchema).optional(),
+    dbMigrations: z.array(DbMigrationSchema).optional(),
     functions: z.array(FunctionNodeSchema).optional(),
     calls: z.array(CallEdgeSchema).optional(),
     services: z.array(ServiceSchema).optional(),

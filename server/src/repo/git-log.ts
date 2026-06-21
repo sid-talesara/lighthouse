@@ -5,6 +5,7 @@ import type { LighthouseData } from "../validate/schema.js";
 type ParsedNode = LighthouseData["nodes"][number];
 type PullRequest = NonNullable<LighthouseData["pullRequests"]>[number];
 type PullRequestTouch = PullRequest["touched"][number];
+type PullRequestFile = NonNullable<PullRequest["files"]>[number];
 type ChangeKind = PullRequestTouch["change"];
 
 const FIELD_SEP = ""; // unit separator
@@ -146,12 +147,14 @@ export async function extractPullRequests(
 
   commits.forEach((commit, index) => {
     const touchedByNode = new Map<string, ChangeKind>();
+    const files: PullRequestFile[] = [];
     let additions = 0;
     let deletions = 0;
 
     for (const file of commit.files) {
       additions += file.additions;
       deletions += file.deletions;
+      files.push({ path: file.path, change: file.status });
       const nodeId = resolveNode(file.path);
       if (!nodeId) continue;
       // Prefer "modified" if a node has mixed change kinds across files.
@@ -185,6 +188,7 @@ export async function extractPullRequests(
       touched,
       additions,
       deletions,
+      ...(files.length > 0 ? { files } : {}),
     });
   });
 

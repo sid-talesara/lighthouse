@@ -11,6 +11,7 @@ import type { AgentProgressEventType } from "../agent/agent-types.js";
 import { AgentCancelledError, AgentTimeoutError } from "../agent/agent-types.js";
 import { buildAnalysisPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
+import { extractDbMigrations } from "../repo/db-migrations.js";
 import { extractDbTables } from "../repo/db-schema.js";
 import { extractPullRequests } from "../repo/git-log.js";
 import { deriveServices } from "../repo/services.js";
@@ -307,6 +308,19 @@ async function runGeneration(options: {
       console.error("[companion] dbTables extraction failed:", formatError(error));
     }
 
+    // dbMigrations — derived deterministically by scanning migration directories.
+    let dbMigrations: unknown[] | undefined;
+    try {
+      dbMigrations = await extractDbMigrations(options.repoPath, indexedFiles);
+      options.onProgress?.({
+        type: "status",
+        phase,
+        message: `Found ${dbMigrations.length} database migrations.`,
+      });
+    } catch (error) {
+      console.error("[companion] dbMigrations extraction failed:", formatError(error));
+    }
+
     // services / serviceLinks — derived deterministically from repo structure.
     let services: unknown[] | undefined;
     let serviceLinks: unknown[] | undefined;
@@ -340,6 +354,7 @@ async function runGeneration(options: {
       files: indexedFiles,
       ...(pullRequests ? { pullRequests } : {}),
       ...(dbTables ? { dbTables } : {}),
+      ...(dbMigrations ? { dbMigrations } : {}),
       ...(services ? { services } : {}),
       ...(serviceLinks ? { serviceLinks } : {}),
     });
