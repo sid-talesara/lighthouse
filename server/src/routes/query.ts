@@ -8,12 +8,14 @@ import { AgentCancelledError } from "../agent/agent-types.js";
 import { buildQueryPrompt } from "../agent/prompt.js";
 import { runAgent } from "../agent/run-agent.js";
 import { buildLocalIndexAnswer, buildRankedEvidence, filePathsFromEvidence, highlightsFromEvidence, visualBlocksFromEvidence, wantsDiagram } from "../query/evidence.js";
+import { buildRepoRagEvidence } from "../query/repo-rag.js";
 import type { QueryAnswer, QueryEvidence, QueryVisualBlock } from "../query/types.js";
 import { getRepoRoot } from "./file.js";
 import { validateRepoPath } from "../utils/path-safety.js";
 import { LighthouseDataSchema } from "../validate/schema.js";
 
 const MAX_CODEX_EVIDENCE = 8;
+const MAX_COMBINED_EVIDENCE = 12;
 const CODE_RELATED_TERMS =
   /\b(api|auth|build|class|component|database|dependency|endpoint|error|file|flow|function|hook|module|package|pr|pull request|query|route|schema|service|test|worker|where|how)\b/i;
 const CODE_PATH_PATTERN = /[A-Za-z0-9_.@-]+\/[A-Za-z0-9_./@-]+|[A-Za-z0-9_-]+\.(ts|tsx|js|jsx|json|css|md|py|go|rs|java|rb|php|yml|yaml)\b/i;
@@ -92,6 +94,22 @@ function looksCodeRelated(question: string): boolean {
 
 function looksChangeReview(question: string): boolean {
   return CHANGE_REVIEW_TERMS.test(question);
+}
+
+function mergeEvidence(mapEvidence: QueryEvidence[], repoEvidence: QueryEvidence[]): QueryEvidence[] {
+  const seen = new Set<string>();
+  return [...repoEvidence, ...mapEvidence]
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.title.localeCompare(b.title);
+    })
+    .filter((item) => {
+      const key = item.paths[0] ? `${item.kind}:${item.paths[0]}` : `${item.kind}:${item.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, MAX_COMBINED_EVIDENCE);
 }
 
 function isSafeRepoRelativePath(repoPath: string | undefined, value: string): boolean {
@@ -319,9 +337,9 @@ function sanitizeCodexAnswer(input: {
 
   return {
     source: "local-codex",
-    source_reason: input.directMode
-      ? input.directReason ?? "Local Codex used direct read-only repository search because the map had no matching evidence."
-      : "Local Codex used because a valid repository path was configured and map evidence matched.",
+    source_reason: input.directReason ?? (input.directMode
+      ? "Local Codex used direct read-only repository search because the map had no matching evidence."
+      : "Local Codex used because a valid repository path was configured and map evidence matched."),
     attempted_codex: true,
     indexing_mode: input.directMode ? "local-codex-direct" : "local-codex-with-map-evidence",
     markdown,
@@ -399,8 +417,12 @@ queryRouter.post("/query", async (req, res) => {
 
   try {
     const { question, data, repoPath, model } = parseQueryRequest(req.body);
-    const evidence = buildRankedEvidence({ question, data });
     const repo = validateOptionalRepoPath(repoPath ?? data.repo.path ?? getRepoRoot() ?? undefined);
+    const mapEvidence = buildRankedEvidence({ question, data });
+    const repoEvidence = repo.repoPath
+      ? buildRepoRagEvidence({ question, repoPath: repo.repoPath, limit: 8 })
+      : [];
+    const evidence = mergeEvidence(mapEvidence, repoEvidence);
     const includeDiagram = wantsDiagram(question);
     const codeRelated = looksCodeRelated(question);
     const changeReview = looksChangeReview(question);
@@ -425,14 +447,18 @@ queryRouter.post("/query", async (req, res) => {
           evidence,
           signal: abortController.signal,
           directMode: true,
-          directReason: "Local Codex used direct PR/change review mode and inspected repository changes.",
+          directReason: repoEvidence.length > 0
+            ? "Local Codex used direct PR/change review mode with local repo retrieval snippets."
+            : "Local Codex used direct PR/change review mode and inspected repository changes.",
           includeDiagram,
           changeReview: true,
           fallback: {
             ...fallback,
             attempted_codex: true,
             repo_path_status: "valid",
-            source_reason: "Local Codex used direct PR/change review mode and inspected repository changes.",
+            source_reason: repoEvidence.length > 0
+              ? "Local Codex used direct PR/change review mode with local repo retrieval snippets."
+              : "Local Codex used direct PR/change review mode and inspected repository changes.",
             indexing_mode: "local-codex-direct",
             highlight_ids: highlightsFromEvidence(evidence, data),
             file_paths: filePathsFromEvidence(evidence),
@@ -470,7 +496,7 @@ queryRouter.post("/query", async (req, res) => {
             signal: abortController.signal,
             directMode: true,
             directReason: codeRelated
-              ? "Local Codex used direct read-only repository search because the map had no matching evidence."
+              ? "Local Codex used direct read-only repository search with local repo retrieval snippets because the map had no matching evidence."
               : "Local Codex used direct read-only repository search because a valid repository path is configured.",
             includeDiagram,
             fallback: {
@@ -478,7 +504,7 @@ queryRouter.post("/query", async (req, res) => {
               attempted_codex: true,
               repo_path_status: "valid",
               source_reason: codeRelated
-                ? "Local Codex used direct read-only repository search because the map had no matching evidence."
+                ? "Local Codex used direct read-only repository search with local repo retrieval snippets because the map had no matching evidence."
                 : "Local Codex used direct read-only repository search because a valid repository path is configured.",
               indexing_mode: "local-codex-direct",
             },
@@ -531,11 +557,16 @@ queryRouter.post("/query", async (req, res) => {
         model,
         evidence,
         signal: abortController.signal,
+        directReason: repoEvidence.length > 0
+          ? "Local Codex used local repo retrieval snippets plus map evidence."
+          : undefined,
         includeDiagram,
         fallback: {
           ...fallback,
           repo_path_status: "valid",
-          source_reason: "Local Codex used because a valid repository path was configured and map evidence matched.",
+          source_reason: repoEvidence.length > 0
+            ? "Local Codex used because a valid repository path was configured; local repo retrieval snippets and map evidence matched."
+            : "Local Codex used because a valid repository path was configured and map evidence matched.",
           highlight_ids: highlightsFromEvidence(evidence, data),
           file_paths: filePathsFromEvidence(evidence),
         },
