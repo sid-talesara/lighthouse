@@ -1,86 +1,183 @@
 /**
- * Onboarding / landing screen — shown before the main app.
+ * Onboarding / landing screen — PostHog-style "desktop" home.
  *
- * Design: PostHog-inspired (cream canvas, flat white cards, yellow CTA,
- * Nunito + IBM Plex Mono, no shadows). Inspired by DeepWiki's repo-picker
- * landing — confident hero with a primary "Explore <repo>" card and a
- * secondary "generate for another repo" affordance.
+ * Design: cream textured canvas, chunky flat bordered cards, yellow accents,
+ * Nunito + IBM Plex Mono. A grid of labeled "app-icon" cards communicates
+ * every consumption mode at a glance (PostHog homepage style). The full
+ * Generate-for-another-repo flow lives inline on this screen.
+ *
+ * Props contract:
+ *  - OnboardingProps (original: data, onEnter, onGenerate)
+ *  - OnboardingGenerateContract (new: all generate-flow props from App.tsx)
+ *
+ * App.tsx spreads both onto this component. We declare all fields here so
+ * TypeScript is satisfied without touching App.tsx.
  *
  * Gate logic lives in App.tsx (localStorage `lh_entered`).
  */
 
+import { useState } from 'react';
 import type { LighthouseData } from '../types/lighthouse';
+import type { GenerateModel, GenerateModelOption } from '../lib/generateOptions';
+import type { GenerateStatus, GenerateEventLogEntry } from '../hooks/useGenerate';
 import { LighthouseIllustration } from './LighthouseIllustration';
+import { DesktopIcon } from './DesktopIcon';
+import { HomeGenerateFlow } from './HomeGenerateFlow';
+
+/* ── Props ───────────────────────────────────────────────────────────────── */
 
 interface OnboardingProps {
   /** Currently loaded data (may be null if still loading). */
   data: LighthouseData | null;
-  /** Called when the user clicks "Explore <repo>" — enters the app. */
+  /** Enters the app at its default view. */
   onEnter: () => void;
-  /** Called when the user wants the Generate flow instead. */
+  /** Legacy escape hatch — opens GeneratePanel in-app (kept for compatibility). */
   onGenerate: () => void;
+
+  /* ── OnboardingGenerateContract (from App.tsx) ─────────────────────── */
+  onGenerateRepo?: (repoPath: string, model: GenerateModel) => void;
+  generateStatus?: GenerateStatus;
+  generateStage?: string;
+  generateElapsedLabel?: string;
+  generateError?: string | null;
+  generateEvents?: GenerateEventLogEntry[];
+  onCancelGenerate?: () => void;
+  models?: GenerateModelOption[];
+  defaultRepoPath?: string;
+  defaultModel?: GenerateModel;
 }
 
-const FEATURES: { icon: string; label: string; detail: string }[] = [
+/* ── Consumption-mode icon definitions ──────────────────────────────────── */
+
+type ModeId =
+  | 'architecture'
+  | 'wiki'
+  | 'changes'
+  | 'database'
+  | 'services'
+  | 'functions'
+  | 'files'
+  | 'ask';
+
+interface ModeCard {
+  id: ModeId;
+  label: string;
+  teaser: string;
+  glyph: React.ReactNode;
+}
+
+const MODES: ModeCard[] = [
   {
-    icon: '🗺️',
-    label: 'Zoomable map',
-    detail: 'Every cluster, module, and file — navigable in one canvas.',
+    id: 'architecture',
+    label: 'Architecture map',
+    teaser: 'Zoomable cluster map — every module & dependency at a glance.',
+    glyph: <MapGlyph />,
   },
   {
-    icon: '💬',
+    id: 'wiki',
+    label: 'Wiki',
+    teaser: 'Auto-generated prose docs for every cluster and module.',
+    glyph: <WikiGlyph />,
+  },
+  {
+    id: 'changes',
+    label: 'Changes & PRs',
+    teaser: 'See exactly what a PR touches and why it matters.',
+    glyph: <ChangesGlyph />,
+  },
+  {
+    id: 'database',
+    label: 'Database',
+    teaser: 'Schema, tables, and ER diagram — all in the open.',
+    glyph: <DbGlyph />,
+  },
+  {
+    id: 'services',
+    label: 'Services',
+    teaser: 'Service call graph and runtime topology.',
+    glyph: <ServicesGlyph />,
+  },
+  {
+    id: 'functions',
+    label: 'Functions',
+    teaser: 'Every function, its callers, and its blast radius.',
+    glyph: <FunctionsGlyph />,
+  },
+  {
+    id: 'files',
+    label: 'Files (IDE)',
+    teaser: 'Browse, read, and search source with full context.',
+    glyph: <FilesGlyph />,
+  },
+  {
+    id: 'ask',
     label: 'Ask anything',
-    detail: "Type a question; the map lights up the answer. It won't judge your architecture.",
-  },
-  {
-    icon: '⚡',
-    label: 'Change review',
-    detail: 'See exactly what a PR touches and why it matters.',
-  },
-  {
-    icon: '🗄️',
-    label: 'DB & functions',
-    detail: 'Schema, tables, and service calls — all in the open.',
+    teaser: 'Type a question; the map lights up the answer.',
+    glyph: <AskGlyph />,
   },
 ];
 
-export function Onboarding({ data, onEnter, onGenerate }: OnboardingProps) {
+/* ── Component ───────────────────────────────────────────────────────────── */
+
+export function Onboarding({
+  data,
+  onEnter,
+  onGenerate,
+  onGenerateRepo,
+  generateStatus = 'idle',
+  generateStage = 'Ready',
+  generateElapsedLabel = '0:00',
+  generateError = null,
+  generateEvents = [],
+  onCancelGenerate,
+  models = [],
+  defaultRepoPath = '',
+  defaultModel = 'gpt-5.5',
+}: OnboardingProps) {
   const repoName = data?.repo?.name ?? null;
   const description = data?.repo?.description ?? null;
   const clusterCount = data?.clusters?.length ?? null;
   const nodeCount = data?.nodes?.length ?? null;
 
+  // Whether the generate section is expanded (shown inline on home).
+  const [showGenerate, setShowGenerate] = useState(
+    !repoName || generateStatus === 'running',
+  );
+
+  // If contract props are available, we show the inline flow.
+  // Otherwise fall back to the old onGenerate() escape hatch.
+  const hasGenerateContract = !!onGenerateRepo && !!onCancelGenerate && models.length > 0;
+
+  const handleModeClick = () => {
+    // All mode clicks just enter the app.
+    onEnter();
+  };
+
   return (
     <div
-      className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 py-12"
+      className="relative flex min-h-screen flex-col items-center overflow-hidden px-4 py-12"
       style={{
         fontFamily: '"Nunito", system-ui, sans-serif',
         backgroundColor: '#EEEFE9',
       }}
     >
-      {/* ── Cream texture / grain overlay ───────────────────────── */}
+      {/* ── Background layers ─────────────────────────────────────────── */}
       <GrainTexture />
-
-      {/* ── Faint coastline beam motif in background ─────────────── */}
       <BeamMotif />
 
-      {/* ── Content (above bg layers) ───────────────────────────── */}
-      <div className="relative z-10 flex w-full flex-col items-center">
+      {/* ── Content ───────────────────────────────────────────────────── */}
+      <div className="relative z-10 flex w-full max-w-[720px] flex-col items-center gap-10">
 
-        {/* ── Hero ─────────────────────────────────────────────────── */}
-        <div className="mb-10 flex flex-col items-center gap-4 text-center">
-
-          {/* Illustration — the big characterful moment */}
-          <div className="mb-1" style={{ width: 180, height: 148 }}>
+        {/* ── Hero ──────────────────────────────────────────────────────── */}
+        <header className="flex flex-col items-center gap-4 text-center">
+          {/* Illustration */}
+          <div style={{ width: 160, height: 132 }}>
             <LighthouseIllustration className="h-full w-full" />
           </div>
 
           {/* Wordmark */}
           <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-7 w-7 items-center justify-center rounded-ph border border-ph-border bg-ph-surface"
-              style={{ flexShrink: 0 }}
-            >
+            <div className="flex h-7 w-7 items-center justify-center rounded-ph border border-ph-border bg-ph-surface">
               <LighthouseGlyph className="h-4 w-4 text-ph-yellow" />
             </div>
             <span
@@ -91,80 +188,132 @@ export function Onboarding({ data, onEnter, onGenerate }: OnboardingProps) {
             </span>
           </div>
 
-          {/* Bold headline */}
+          {/* Headline */}
           <h1
             className="font-display font-extrabold text-ph-ink"
             style={{
-              fontSize: 'clamp(2rem, 5vw, 2.75rem)',
-              lineHeight: '1.15',
+              fontSize: 'clamp(1.875rem, 5vw, 2.75rem)',
+              lineHeight: '1.12',
               letterSpacing: '-0.03em',
-              maxWidth: '520px',
+              maxWidth: '560px',
             }}
           >
-            Understand any codebase.
+            Learn any codebase.
             <br />
-            <span style={{ color: '#F7A501' }}>In minutes, not weeks.</span>
+            <span style={{ color: '#F7A501' }}>In any form you need.</span>
           </h1>
 
-          {/* Witty subhead */}
+          {/* Subhead */}
           <p
             className="text-ph-body"
-            style={{ fontSize: '1.0625rem', lineHeight: '1.6', maxWidth: '400px' }}
+            style={{ fontSize: '1rem', lineHeight: '1.6', maxWidth: '440px' }}
           >
-            A living, interactive map of structure, dependencies, and meaning.{' '}
-            <span className="text-ph-mute" style={{ fontSize: '0.9375rem' }}>
-              Like a GPS for your codebase — except it actually knows where things are.
+            Architecture maps, wikis, PR reviews, DB schemas, service graphs,
+            IDE-style file browsing, and a codebase AI you can ask anything.{' '}
+            <span className="text-ph-mute" style={{ fontSize: '0.9rem' }}>
+              Eight modes. One codebase. Instant.
             </span>
           </p>
-        </div>
+        </header>
 
-        {/* ── Primary card: Explore loaded repo ───────────────────── */}
-        {repoName ? (
-          <RepoCard
-            repoName={repoName}
-            description={description}
-            clusterCount={clusterCount}
-            nodeCount={nodeCount}
-            onEnter={onEnter}
-          />
-        ) : (
-          <EmptyCard onGenerate={onGenerate} />
-        )}
+        {/* ── Consumption-mode desktop grid ─────────────────────────────── */}
+        <section className="w-full">
+          <SectionLabel>Eight ways to understand a codebase</SectionLabel>
 
-        {/* ── Secondary affordance: generate another repo ──────────── */}
-        {repoName && (
-          <button
-            onClick={onGenerate}
-            className="mb-10 inline-flex items-center gap-1.5 rounded-ph border border-ph-border bg-ph-surface px-4 font-sans font-semibold text-ph-body transition-colors duration-75 hover:bg-ph-surface-soft active:translate-y-px"
-            style={{ height: '36px', fontSize: '0.8125rem' }}
-          >
-            <span style={{ fontSize: '0.875rem' }}>＋</span>
-            Generate for another repo
-          </button>
-        )}
-
-        {/* ── Feature grid: "what you'll get" ─────────────────────── */}
-        <div className="mb-2 w-full max-w-[480px]">
-          {/* Section label */}
           <div
-            className="mb-3 font-mono font-semibold uppercase tracking-widest text-ph-ash"
-            style={{ fontSize: '0.6875rem', letterSpacing: '0.1em' }}
+            className="mt-3 grid gap-3"
+            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
           >
-            What you get
-          </div>
-          <div
-            className="grid gap-3"
-            style={{ gridTemplateColumns: '1fr 1fr' }}
-          >
-            {FEATURES.map((f) => (
-              <FeatureCard key={f.label} icon={f.icon} label={f.label} detail={f.detail} />
+            {MODES.map((mode) => (
+              <DesktopIcon
+                key={mode.id}
+                glyph={mode.glyph}
+                label={mode.label}
+                teaser={mode.teaser}
+                onClick={handleModeClick}
+                muted={!repoName}
+              />
             ))}
           </div>
-        </div>
 
-        {/* ── Ghost caption ────────────────────────────────────────── */}
+          {!repoName && (
+            <p
+              className="mt-2 font-mono text-ph-ash"
+              style={{ fontSize: '0.6875rem' }}
+            >
+              Generate or load a repo to unlock all modes.
+            </p>
+          )}
+        </section>
+
+        {/* ── Primary card: Explore loaded repo ─────────────────────────── */}
+        {repoName && (
+          <section className="w-full">
+            <SectionLabel>Ready to explore</SectionLabel>
+            <RepoCard
+              repoName={repoName}
+              description={description}
+              clusterCount={clusterCount}
+              nodeCount={nodeCount}
+              onEnter={onEnter}
+            />
+          </section>
+        )}
+
+        {/* ── Generate flow ──────────────────────────────────────────────── */}
+        <section className="w-full">
+          {/* Toggle header — show/hide the generate form */}
+          {repoName && !showGenerate ? (
+            <button
+              onClick={() => setShowGenerate(true)}
+              className="mb-3 inline-flex items-center gap-1.5 rounded-ph border border-ph-border bg-ph-surface px-4 font-sans font-semibold text-ph-body transition-colors duration-75 hover:bg-ph-surface-soft active:translate-y-px"
+              style={{ height: '36px', fontSize: '0.8125rem' }}
+            >
+              <span style={{ fontSize: '0.875rem' }}>＋</span>
+              Generate for another repo
+            </button>
+          ) : (
+            <>
+              {repoName && (
+                <div className="mb-3 flex items-center justify-between">
+                  <SectionLabel>Generate a new map</SectionLabel>
+                  <button
+                    onClick={() => setShowGenerate(false)}
+                    className="font-mono text-ph-ash transition-colors hover:text-ph-ink"
+                    style={{ fontSize: '0.75rem' }}
+                    aria-label="Collapse generate panel"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {!repoName && <SectionLabel>Get started — generate a map</SectionLabel>}
+
+              {hasGenerateContract ? (
+                <HomeGenerateFlow
+                  onGenerateRepo={onGenerateRepo!}
+                  generateStatus={generateStatus}
+                  generateStage={generateStage}
+                  generateElapsedLabel={generateElapsedLabel}
+                  generateError={generateError}
+                  generateEvents={generateEvents}
+                  onCancelGenerate={onCancelGenerate!}
+                  models={models}
+                  defaultRepoPath={defaultRepoPath}
+                  defaultModel={defaultModel}
+                  onEnter={onEnter}
+                />
+              ) : (
+                <EmptyCard onGenerate={onGenerate} />
+              )}
+            </>
+          )}
+        </section>
+
+        {/* ── Footer hint ───────────────────────────────────────────────── */}
         <p
-          className="mt-8 font-mono text-ph-stone"
+          className="font-mono text-ph-stone"
           style={{ fontSize: '0.6875rem', letterSpacing: '0.04em' }}
         >
           ← clusters &nbsp; nodes → &nbsp; click to read &nbsp; ask anything ↓
@@ -175,7 +324,18 @@ export function Onboarding({ data, onEnter, onGenerate }: OnboardingProps) {
   );
 }
 
-/* ── Sub-components ─────────────────────────────────────────────────── */
+/* ── Sub-components ──────────────────────────────────────────────────────── */
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="font-mono font-semibold uppercase tracking-widest text-ph-ash"
+      style={{ fontSize: '0.6875rem', letterSpacing: '0.1em' }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function RepoCard({
   repoName,
@@ -192,20 +352,11 @@ function RepoCard({
 }) {
   return (
     <div
-      className="mb-4 w-full max-w-[480px] rounded-ph border border-ph-border bg-ph-surface"
+      className="mt-3 w-full rounded-ph border border-ph-border bg-ph-surface"
       style={{ padding: '24px 28px' }}
     >
-      {/* Breadcrumb label */}
-      <div
-        className="mb-3 font-mono font-semibold uppercase tracking-widest text-ph-ash"
-        style={{ fontSize: '0.6875rem', letterSpacing: '0.1em' }}
-      >
-        Ready to explore
-      </div>
-
-      {/* Repo identity row */}
+      {/* Repo identity */}
       <div className="mb-1 flex items-center gap-2.5">
-        {/* Accent dot */}
         <span
           className="inline-block h-2 w-2 rounded-full"
           style={{ backgroundColor: '#2C8C66', flexShrink: 0 }}
@@ -228,7 +379,6 @@ function RepoCard({
         </p>
       )}
 
-      {/* Stats row */}
       {(clusterCount !== null || nodeCount !== null) && (
         <div
           className="mb-5 flex gap-4 rounded-ph border border-ph-border-soft bg-ph-canvas px-3 py-2 font-mono"
@@ -254,16 +404,13 @@ function RepoCard({
         </div>
       )}
 
-      {/* Primary CTA */}
       <button
         onClick={onEnter}
         className="inline-flex w-full items-center justify-center gap-2 rounded-ph border border-ph-yellow-pressed bg-ph-yellow font-sans font-bold text-ph-ink transition-colors duration-75 hover:bg-ph-yellow-pressed active:translate-y-px"
         style={{ height: '44px', fontSize: '0.9375rem' }}
       >
         Explore {repoName}
-        <span aria-hidden style={{ fontSize: '1rem' }}>
-          →
-        </span>
+        <span aria-hidden style={{ fontSize: '1rem' }}>→</span>
       </button>
     </div>
   );
@@ -272,15 +419,9 @@ function RepoCard({
 function EmptyCard({ onGenerate }: { onGenerate: () => void }) {
   return (
     <div
-      className="mb-4 w-full max-w-[480px] rounded-ph border border-ph-border bg-ph-surface"
+      className="mt-3 w-full rounded-ph border border-ph-border bg-ph-surface"
       style={{ padding: '24px 28px' }}
     >
-      <div
-        className="mb-3 font-mono font-semibold uppercase tracking-widest text-ph-ash"
-        style={{ fontSize: '0.6875rem', letterSpacing: '0.1em' }}
-      >
-        No codebase loaded
-      </div>
       <p className="mb-2 font-sans font-semibold text-ph-ink" style={{ fontSize: '0.9375rem' }}>
         Point Lighthouse at a repo. Get a map.
       </p>
@@ -300,38 +441,8 @@ function EmptyCard({ onGenerate }: { onGenerate: () => void }) {
   );
 }
 
-function FeatureCard({
-  icon,
-  label,
-  detail,
-}: {
-  icon: string;
-  label: string;
-  detail: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5 rounded-ph border border-ph-border bg-ph-surface px-4 py-3.5 transition-colors duration-75 hover:border-ph-ash">
-      <div className="flex items-center gap-2">
-        <span style={{ fontSize: '1.0625rem' }} aria-hidden>
-          {icon}
-        </span>
-        <span
-          className="font-sans font-bold text-ph-ink"
-          style={{ fontSize: '0.8125rem' }}
-        >
-          {label}
-        </span>
-      </div>
-      <p className="text-ph-mute" style={{ fontSize: '0.75rem', lineHeight: '1.5' }}>
-        {detail}
-      </p>
-    </div>
-  );
-}
+/* ── Background decorations ──────────────────────────────────────────────── */
 
-/* ── Background decorations ─────────────────────────────────────────── */
-
-/** Subtle SVG grain / noise texture overlay — gives the cream canvas depth. */
 function GrainTexture() {
   return (
     <svg
@@ -360,7 +471,6 @@ function GrainTexture() {
   );
 }
 
-/** Faint diagonal beam motif — evokes the lighthouse beam sweeping the canvas. */
 function BeamMotif() {
   return (
     <svg
@@ -379,12 +489,9 @@ function BeamMotif() {
       preserveAspectRatio="xMaxYMin meet"
       fill="none"
     >
-      {/* Three overlapping beam wedges radiating from top-right */}
       <polygon points="480,0 480,320 220,160" fill="#F7A501" opacity="0.04" />
       <polygon points="480,0 480,260 260,110" fill="#F7A501" opacity="0.05" />
       <polygon points="480,0 480,200 300,70"  fill="#F7A501" opacity="0.06" />
-
-      {/* Dotted coastline bottom-left motif */}
       {Array.from({ length: 28 }, (_, i) => (
         <circle
           key={i}
@@ -399,7 +506,7 @@ function BeamMotif() {
   );
 }
 
-/** Inline lighthouse SVG glyph — same as App.tsx. */
+/** Inline lighthouse SVG glyph. */
 function LighthouseGlyph({ className }: { className?: string }) {
   return (
     <svg
@@ -418,6 +525,104 @@ function LighthouseGlyph({ className }: { className?: string }) {
       <path d="M14.5 7 L19 5.5 M14.5 7 L19 8.5" />
       <path d="M9.5 7 L5 5.5 M9.5 7 L5 8.5" />
       <path d="M12 5 V3" />
+    </svg>
+  );
+}
+
+/* ── Mode glyphs (flat SVGs, 16×16 viewBox) ─────────────────────────────── */
+
+function MapGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"
+      strokeLinecap="round" strokeLinejoin="round"
+      className="h-4 w-4 text-ph-yellow" aria-hidden>
+      <circle cx="8" cy="8" r="6" />
+      <circle cx="8" cy="8" r="2.5" />
+      <path d="M8 2v2M8 12v2M2 8h2M12 8h2" />
+    </svg>
+  );
+}
+
+function WikiGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"
+      strokeLinecap="round" strokeLinejoin="round"
+      className="h-4 w-4 text-ph-body" aria-hidden>
+      <rect x="2" y="2" width="12" height="12" rx="1.5" />
+      <path d="M5 5h6M5 8h6M5 11h4" />
+    </svg>
+  );
+}
+
+function ChangesGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"
+      strokeLinecap="round" strokeLinejoin="round"
+      className="h-4 w-4 text-ph-body" aria-hidden>
+      <path d="M3 4h10M3 8h7M3 12h5" />
+      <circle cx="12.5" cy="11.5" r="2.5" />
+      <path d="M11.5 11.5h2M12.5 10.5v2" />
+    </svg>
+  );
+}
+
+function DbGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"
+      strokeLinecap="round" strokeLinejoin="round"
+      className="h-4 w-4 text-ph-body" aria-hidden>
+      <ellipse cx="8" cy="4.5" rx="5" ry="2" />
+      <path d="M3 4.5v7c0 1.1 2.24 2 5 2s5-.9 5-2v-7" />
+      <path d="M3 8.5c0 1.1 2.24 2 5 2s5-.9 5-2" />
+    </svg>
+  );
+}
+
+function ServicesGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"
+      strokeLinecap="round" strokeLinejoin="round"
+      className="h-4 w-4 text-ph-body" aria-hidden>
+      <circle cx="3.5" cy="8" r="1.5" />
+      <circle cx="12.5" cy="4" r="1.5" />
+      <circle cx="12.5" cy="12" r="1.5" />
+      <path d="M5 8l6-4M5 8l6 4" />
+    </svg>
+  );
+}
+
+function FunctionsGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"
+      strokeLinecap="round" strokeLinejoin="round"
+      className="h-4 w-4 text-ph-body" aria-hidden>
+      <path d="M4 3C4 3 3 4 3 8s1 5 1 5" />
+      <path d="M12 3C12 3 13 4 13 8s-1 5-1 5" />
+      <path d="M6 8h4M8 6v4" />
+    </svg>
+  );
+}
+
+function FilesGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"
+      strokeLinecap="round" strokeLinejoin="round"
+      className="h-4 w-4 text-ph-body" aria-hidden>
+      <path d="M4 2h5l3 3v9H4z" />
+      <path d="M9 2v3h3" />
+      <path d="M6 7h4M6 9.5h4M6 12h2.5" />
+    </svg>
+  );
+}
+
+function AskGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"
+      strokeLinecap="round" strokeLinejoin="round"
+      className="h-4 w-4 text-ph-body" aria-hidden>
+      <path d="M2 3a1 1 0 011-1h10a1 1 0 011 1v7a1 1 0 01-1 1H9l-3 3v-3H3a1 1 0 01-1-1z" />
+      <path d="M7.5 5a.75.75 0 01.75-.75.75.75 0 01.75.75c0 .5-.5.75-.75 1v.75" />
+      <circle cx="8.25" cy="8.5" r=".35" fill="currentColor" />
     </svg>
   );
 }
