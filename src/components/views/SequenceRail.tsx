@@ -1,463 +1,365 @@
 /**
- * SequenceRail — a real sequence-diagram-style rail, synced to the trace.
+ * SequenceRail — the guided tour panel (the "detailed" half of the walkthrough).
  *
- * Layout:
- *   • One vertical LANE (column) per participating module, ordered by first
- *     appearance, left→right. Each lane has a header (module label + cluster
- *     color chip) and a dashed lifeline running top→bottom.
- *   • Each step is a time-ordered ROW (top→bottom = time). A step draws a
- *     horizontal ARROW from the previous step's lane to the current step's
- *     lane, labeled with what happens at that step (plain language).
- *   • The row for the currently-active step is highlighted in yellow — in sync
- *     with the map trace, because both read the same `activeStep` prop.
- *   • A legend and caption explain what the lanes and arrows represent.
+ * This is no longer a scattered sequence diagram. It is the narrative a new
+ * joinee reads to learn the system: a vertical, aligned list of steps in
+ * execution order. The active step expands into a full briefing:
  *
- * Pure SVG so arrows, self-calls, and the active-row glow are fully styleable.
+ *   • WHAT happens (the plain-language description),
+ *   • WHO handles it (module label + owning cluster + deployable service),
+ *   • WHERE in the code (function signature + file path),
+ *   • HOW control arrived (inbound handoff) and where it goes next (outbound).
+ *
+ * Inactive steps collapse to a single readable line so the whole flow stays
+ * scannable. Clicking any step jumps the walkthrough there (kept in sync with
+ * the diagram via the shared `activeStep`).
  */
 
-import { useMemo } from 'react';
-import type { Flow } from '../../types/lighthouse';
-import { clusterColor, type Participant } from './flowEngine';
+import type { ResolvedStep } from './flowEngine';
 
 interface Props {
-  flow: Flow;
-  participants: Participant[];
+  steps: ResolvedStep[];
   activeStep: number;
   onSelectStep: (stepIndex: number) => void;
 }
 
-const LANE_W = 160;
-const HEADER_H = 64;
-const ROW_H = 58;
-const LEFT_PAD = 28;
-const RIGHT_PAD = 16;
-
-function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + '…' : s;
-}
-
-/** Break label into two lines at ~15 chars for SVG header readability. */
-function wrapLabel(s: string, maxChars = 15): [string, string | null] {
-  if (s.length <= maxChars) return [s, null];
-  const words = s.split(/\s+/);
-  if (words.length >= 2) {
-    // Try to split roughly in half by word
-    let first = '';
-    let second = '';
-    let placed = false;
-    for (const w of words) {
-      if (!placed && (first + ' ' + w).trim().length > maxChars) {
-        placed = true;
-        second = w;
-      } else if (placed) {
-        second += ' ' + w;
-      } else {
-        first = first ? first + ' ' + w : w;
-      }
-    }
-    if (first && second) return [first.trim(), second.trim()];
-  }
-  return [s.slice(0, maxChars) + '—', s.slice(maxChars)];
-}
-
-export function SequenceRail({
-  flow,
-  participants,
-  activeStep,
-  onSelectStep,
-}: Props) {
-  const laneIndex = useMemo(
-    () => new Map(participants.map((p, i) => [p.id, i])),
-    [participants],
-  );
-
-  const laneCount = participants.length;
-  const width = LEFT_PAD + RIGHT_PAD + laneCount * LANE_W;
-  const laneX = (i: number) => LEFT_PAD + i * LANE_W + LANE_W / 2;
-
-  const steps = flow.steps;
-  const height = HEADER_H + steps.length * ROW_H + 20;
-
+export function SequenceRail({ steps, activeStep, onSelectStep }: Props) {
   return (
     <div>
-      {/* ── Legend + caption ────────────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          padding: '6px 12px',
+          padding: '8px 14px',
           borderBottom: '1px solid #DCDFD2',
-          background: '#F5F5F0',
-          flexWrap: 'wrap',
+          background: '#FAFAF7',
         }}
       >
         <span
           style={{
             fontFamily: '"Nunito", system-ui, sans-serif',
-            fontSize: 10,
+            fontSize: 11,
             fontWeight: 700,
             letterSpacing: '0.06em',
             textTransform: 'uppercase',
             color: '#6C6E63',
-            flexShrink: 0,
           }}
         >
-          Sequence — time flows top → bottom
+          Guided walkthrough — what happens at each step
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <SequenceLegendItem
-            symbol={
-              <svg width={32} height={14} style={{ display: 'block' }}>
-                <line x1={2} y1={7} x2={24} y2={7} stroke="#DD9001" strokeWidth={2} />
-                <polygon points="22,4 30,7 22,10" fill="#DD9001" />
-              </svg>
-            }
-            label="Active step (request moves here)"
-          />
-          <SequenceLegendItem
-            symbol={
-              <svg width={32} height={14} style={{ display: 'block' }}>
-                <line x1={2} y1={7} x2={24} y2={7} stroke="#9B9C92" strokeWidth={1.5} />
-                <polygon points="22,4 30,7 22,10" fill="#9B9C92" />
-              </svg>
-            }
-            label="Past step"
-          />
-          <SequenceLegendItem
-            symbol={
-              <svg width={10} height={14} style={{ display: 'block' }}>
-                <line x1={5} y1={0} x2={5} y2={14} stroke="#D0D1C9" strokeWidth={1} strokeDasharray="3 3" />
-              </svg>
-            }
-            label="Module lifeline"
-          />
-          <SequenceLegendItem
-            symbol={
-              <svg width={12} height={14} style={{ display: 'block' }}>
-                <rect x={1} y={2} width={10} height={10} rx={2} fill="#F7A501" stroke="#DD9001" strokeWidth={1} />
-              </svg>
-            }
-            label="Activation block"
-          />
-        </div>
       </div>
 
-      {/* ── Diagram ─────────────────────────────────────────────────────────── */}
-      <div style={{ overflowX: 'auto' }}>
-        <svg
-          viewBox={`0 0 ${Math.max(width, 320)} ${height}`}
-          width="100%"
-          height={height}
-          role="img"
-          aria-label={`Sequence diagram for ${flow.name}`}
-          style={{ display: 'block', minWidth: Math.min(width, 640) }}
-        >
-          <defs>
-            <marker
-              id="seq-arrow"
-              markerWidth={9}
-              markerHeight={7}
-              refX={8}
-              refY={3.5}
-              orient="auto"
-            >
-              <polygon points="0 0, 9 3.5, 0 7" fill="#9B9C92" />
-            </marker>
-            <marker
-              id="seq-arrow-live"
-              markerWidth={10}
-              markerHeight={8}
-              refX={8}
-              refY={4}
-              orient="auto"
-            >
-              <polygon points="0 0, 10 4, 0 8" fill="#DD9001" />
-            </marker>
-          </defs>
-
-          {/* ── Lane headers + lifelines ─────────────────────────────────────── */}
-          {participants.map((p, i) => {
-            const x = laneX(i);
-            const accent = clusterColor(p.cluster?.id);
-            const laneActive = flow.steps[activeStep]?.node === p.id;
-            const [line1, line2] = wrapLabel(p.label, 17);
-
-            return (
-              <g key={`lane-${p.id}`}>
-                {/* Lifeline */}
-                <line
-                  x1={x}
-                  y1={HEADER_H}
-                  x2={x}
-                  y2={height - 10}
-                  stroke={laneActive ? '#F7A501' : '#D0D1C9'}
-                  strokeWidth={laneActive ? 2 : 1}
-                  strokeDasharray="4 4"
-                  style={{ transition: 'stroke 200ms ease-out' }}
-                />
-
-                {/* Header card */}
-                <rect
-                  x={x - LANE_W / 2 + 6}
-                  y={6}
-                  width={LANE_W - 12}
-                  height={HEADER_H - 12}
-                  rx={6}
-                  fill="#FFFFFF"
-                  stroke={laneActive ? '#F7A501' : accent}
-                  strokeWidth={laneActive ? 2 : 1.5}
-                  style={{ transition: 'stroke 200ms ease-out' }}
-                />
-                {/* Color accent stripe on left of header */}
-                <rect
-                  x={x - LANE_W / 2 + 6}
-                  y={6}
-                  width={4}
-                  height={HEADER_H - 12}
-                  rx={2}
-                  fill={accent}
-                />
-                {/* Module name — line 1 */}
-                <text
-                  x={x + 2}
-                  y={line2 ? 24 : 28}
-                  textAnchor="middle"
-                  fontSize={11}
-                  fontWeight={700}
-                  fontFamily="Nunito, system-ui"
-                  fill="#151515"
-                >
-                  {line1}
-                </text>
-                {/* Module name — line 2 */}
-                {line2 && (
-                  <text
-                    x={x + 2}
-                    y={37}
-                    textAnchor="middle"
-                    fontSize={11}
-                    fontWeight={700}
-                    fontFamily="Nunito, system-ui"
-                    fill="#151515"
-                  >
-                    {truncate(line2, 18)}
-                  </text>
-                )}
-                {/* Cluster label below module name */}
-                <text
-                  x={x + 2}
-                  y={line2 ? 51 : 43}
-                  textAnchor="middle"
-                  fontSize={8.5}
-                  fontWeight={600}
-                  fontFamily="IBM Plex Mono, monospace"
-                  fill={accent}
-                  letterSpacing="0.04em"
-                >
-                  {truncate((p.cluster?.label ?? 'module').toUpperCase(), 18)}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* ── Step rows (arrows between lanes) ─────────────────────────────── */}
-          {steps.map((step, i) => {
-            const rowY = HEADER_H + i * ROW_H + ROW_H / 2;
-            const toLane = laneIndex.get(step.node);
-            if (toLane === undefined) return null;
-            const toX = laneX(toLane);
-
-            const prevNode = i > 0 ? steps[i - 1].node : undefined;
-            const fromLane =
-              prevNode !== undefined ? laneIndex.get(prevNode) : undefined;
-            const isActive = i === activeStep;
-            const isPast = i < activeStep;
-
-            const rowStroke = isActive ? '#DD9001' : isPast ? '#9B9C92' : '#C5C6BE';
-            const labelColor = isActive ? '#151515' : isPast ? '#4D4F46' : '#9B9C92';
-
-            // Clickable full-row hit area + active highlight band.
-            const band = (
-              <rect
-                x={2}
-                y={rowY - ROW_H / 2 + 2}
-                width={Math.max(width, 320) - 4}
-                height={ROW_H - 4}
-                rx={6}
-                fill={
-                  isActive
-                    ? 'rgba(247,165,1,0.08)'
-                    : isPast
-                    ? 'transparent'
-                    : 'transparent'
-                }
-                stroke={isActive ? 'rgba(247,165,1,0.45)' : 'transparent'}
-                strokeWidth={1}
-                style={{ transition: 'fill 200ms ease-out, stroke 200ms ease-out' }}
-              />
-            );
-
-            let connector;
-            if (fromLane === undefined || fromLane === toLane) {
-              if (fromLane === undefined) {
-                // Entry marker: arrow coming in from the left margin.
-                connector = (
-                  <line
-                    x1={Math.max(toX - 80, LEFT_PAD - 6)}
-                    y1={rowY}
-                    x2={toX - 6}
-                    y2={rowY}
-                    stroke={rowStroke}
-                    strokeWidth={isActive ? 2.5 : 1.5}
-                    markerEnd={isActive ? 'url(#seq-arrow-live)' : 'url(#seq-arrow)'}
-                    style={{ transition: 'stroke 200ms ease-out' }}
-                  />
-                );
-              } else {
-                // Self-call loop.
-                const selfW = 28;
-                connector = (
-                  <path
-                    d={`M ${toX} ${rowY - 10} h ${selfW} v 20 h ${-selfW}`}
-                    fill="none"
-                    stroke={rowStroke}
-                    strokeWidth={isActive ? 2.5 : 1.5}
-                    markerEnd={isActive ? 'url(#seq-arrow-live)' : 'url(#seq-arrow)'}
-                    style={{ transition: 'stroke 200ms ease-out' }}
-                  />
-                );
-              }
-            } else {
-              const fromX = laneX(fromLane);
-              const dir = toX > fromX ? 1 : -1;
-              connector = (
-                <line
-                  x1={fromX + dir * 8}
-                  y1={rowY}
-                  x2={toX - dir * 8}
-                  y2={rowY}
-                  stroke={rowStroke}
-                  strokeWidth={isActive ? 2.5 : 1.5}
-                  markerEnd={isActive ? 'url(#seq-arrow-live)' : 'url(#seq-arrow)'}
-                  style={{ transition: 'stroke 200ms ease-out' }}
-                />
-              );
-            }
-
-            // Activation block on the target lifeline.
-            const activation = (
-              <rect
-                x={toX - 5}
-                y={rowY - ROW_H / 2 + 8}
-                width={10}
-                height={ROW_H - 16}
-                rx={2}
-                fill={isActive ? '#F7A501' : isPast ? '#E5E7E0' : '#F0F0EC'}
-                stroke={isActive ? '#DD9001' : '#BFC1B7'}
-                strokeWidth={1}
-                style={{ transition: 'fill 200ms ease-out, stroke 200ms ease-out' }}
-              />
-            );
-
-            // Step description label — placed above the connector, centered.
-            const labelX =
-              fromLane !== undefined && fromLane !== toLane
-                ? (laneX(fromLane) + toX) / 2
-                : toX + 20;
-            const labelAnchor: 'middle' | 'start' =
-              fromLane !== undefined && fromLane !== toLane ? 'middle' : 'start';
-
-            // Truncate to ~48 chars for the SVG row — full text shows in detail strip below
-            const shortDesc = truncate(step.description, 48);
-
-            return (
-              <g
-                key={`step-${i}`}
+      {/* ── Step list ───────────────────────────────────────────────────────── */}
+      <ol
+        style={{
+          listStyle: 'none',
+          margin: 0,
+          padding: 0,
+        }}
+      >
+        {steps.map((step, i) => {
+          const isActive = i === activeStep;
+          const visited = i < activeStep;
+          return (
+            <li key={step.nodeId + '-' + i}>
+              <StepRow
+                step={step}
+                isActive={isActive}
+                visited={visited}
+                isLast={i === steps.length - 1}
                 onClick={() => onSelectStep(i)}
-                style={{ cursor: 'pointer' }}
-                role="button"
-                aria-current={isActive ? 'step' : undefined}
-                aria-label={`Step ${i + 1}: ${step.description}`}
-              >
-                {band}
-                {/* Step number gutter — left margin */}
-                <text
-                  x={10}
-                  y={rowY + 4}
-                  fontSize={10}
-                  fontWeight={700}
-                  fontFamily="IBM Plex Mono, monospace"
-                  fill={isActive ? '#DD9001' : '#B6B7AF'}
-                >
-                  {String(i + 1).padStart(2, '0')}
-                </text>
-                {connector}
-                {activation}
-                {/* Description above the arrow */}
-                <text
-                  x={labelX}
-                  y={rowY - 13}
-                  textAnchor={labelAnchor}
-                  fontSize={10.5}
-                  fontWeight={isActive ? 700 : isPast ? 500 : 400}
-                  fontFamily="system-ui, sans-serif"
-                  fill={labelColor}
-                  style={{ transition: 'fill 200ms ease-out' }}
-                >
-                  {shortDesc}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
+              />
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
 
-      {/* ── Caption ──────────────────────────────────────────────────────────── */}
+// ─── One step row ─────────────────────────────────────────────────────────────
+
+function StepRow({
+  step,
+  isActive,
+  visited,
+  isLast,
+  onClick,
+}: {
+  step: ResolvedStep;
+  isActive: boolean;
+  visited: boolean;
+  isLast: boolean;
+  onClick: () => void;
+}) {
+  const accent = step.color;
+  const medallionBg = isActive ? '#F7A501' : visited ? accent : '#EEEFE9';
+  const medallionText = isActive || visited ? '#FFFFFF' : '#9B9C92';
+
+  return (
+    <div
+      onClick={onClick}
+      role="button"
+      aria-current={isActive ? 'step' : undefined}
+      aria-label={`Step ${step.index + 1}: ${step.label}`}
+      style={{
+        display: 'flex',
+        gap: 12,
+        padding: '12px 16px',
+        cursor: 'pointer',
+        background: isActive ? '#FFFBF2' : '#FFFFFF',
+        borderLeft: isActive ? '3px solid #F7A501' : '3px solid transparent',
+        borderBottom: isLast ? 'none' : '1px solid #DCDFD2',
+        transition: 'background 120ms ease-out',
+      }}
+      onMouseEnter={(e) => {
+        if (!isActive)
+          (e.currentTarget as HTMLDivElement).style.background = '#FAFAF7';
+      }}
+      onMouseLeave={(e) => {
+        if (!isActive)
+          (e.currentTarget as HTMLDivElement).style.background = '#FFFFFF';
+      }}
+    >
+      {/* Rail column: medallion + connector line */}
       <div
         style={{
-          padding: '6px 12px 8px',
-          borderTop: '1px solid #DCDFD2',
-          background: '#F5F5F0',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          flexShrink: 0,
         }}
       >
         <span
           style={{
-            fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-            fontSize: 10,
-            color: '#9B9C92',
-            letterSpacing: '0.02em',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 26,
+            height: 26,
+            borderRadius: '50%',
+            background: medallionBg,
+            border: `1.5px solid ${isActive ? '#DD9001' : visited ? accent : '#DCDFD2'}`,
+            color: medallionText,
+            fontFamily: '"Nunito", system-ui, sans-serif',
+            fontSize: 12,
+            fontWeight: 800,
+            flexShrink: 0,
           }}
         >
-          Each column = one module/service. Time flows top → bottom. Arrows show which module the request moves to at each step. Click any row to jump to that step.
+          {step.index + 1}
         </span>
+        {!isLast && (
+          <span
+            style={{
+              flex: 1,
+              width: 2,
+              marginTop: 4,
+              background: visited ? accent : '#DCDFD2',
+              borderRadius: 1,
+              minHeight: 12,
+            }}
+          />
+        )}
+      </div>
+
+      {/* Content column */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Title row: module + cluster + service */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span
+            style={{
+              fontFamily: '"Nunito", system-ui, sans-serif',
+              fontSize: 14,
+              fontWeight: 800,
+              color: '#151515',
+            }}
+          >
+            {step.label}
+          </span>
+          {step.cluster && <Pill text={step.cluster.label} color={accent} soft />}
+          {step.service && <Pill text={step.service.name} color="#6C6E63" />}
+        </div>
+
+        {/* Inbound handoff (only when expanded and not the first step) */}
+        {isActive && step.inVerb && step.prevLabel && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              marginTop: 6,
+              fontFamily: 'system-ui, sans-serif',
+              fontSize: 11,
+              color: '#9B9C92',
+            }}
+          >
+            <Arrow />
+            <span style={{ fontStyle: 'italic' }}>
+              {step.prevLabel}{' '}
+              <strong style={{ color: '#6C6E63', fontStyle: 'normal' }}>{step.inVerb}</strong>{' '}
+              {step.label}
+            </span>
+          </div>
+        )}
+
+        {/* Description — full when active, single line when collapsed */}
+        <p
+          style={{
+            margin: '6px 0 0',
+            fontSize: 13,
+            lineHeight: 1.6,
+            color: isActive ? '#23251D' : '#6C6E63',
+            fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+            ...(isActive
+              ? {}
+              : {
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }),
+          }}
+        >
+          {step.description}
+        </p>
+
+        {/* Code coordinates — only when expanded */}
+        {isActive && (step.fn || step.path) && (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              marginTop: 8,
+            }}
+          >
+            {step.fn && (
+              <code
+                style={{
+                  fontFamily: '"IBM Plex Mono", monospace',
+                  fontSize: 11,
+                  color: '#23251D',
+                  background: '#E5E7E0',
+                  borderRadius: 4,
+                  padding: '2px 7px',
+                }}
+                title={step.fn.signature ?? step.fn.name}
+              >
+                {step.fn.name}
+                {step.fn.signature ? step.fn.signature : '()'}
+              </code>
+            )}
+            {step.path && (
+              <code
+                style={{
+                  fontFamily: '"IBM Plex Mono", monospace',
+                  fontSize: 11,
+                  color: '#6C6E63',
+                  background: '#F0F0EC',
+                  borderRadius: 4,
+                  padding: '2px 7px',
+                }}
+              >
+                {step.path}
+              </code>
+            )}
+          </div>
+        )}
+
+        {/* Function summary line — only when expanded and available */}
+        {isActive && step.fn?.summary && (
+          <p
+            style={{
+              margin: '6px 0 0',
+              fontSize: 12,
+              lineHeight: 1.5,
+              color: '#6C6E63',
+              fontFamily: 'system-ui, sans-serif',
+            }}
+          >
+            {step.fn.summary}
+          </p>
+        )}
+
+        {/* Outbound handoff — only when expanded and not the last step */}
+        {isActive && step.outVerb && step.nextLabel && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: '1px solid #DCDFD2',
+              fontFamily: 'system-ui, sans-serif',
+              fontSize: 11,
+              color: '#9B9C92',
+            }}
+          >
+            <span>
+              then{' '}
+              <strong style={{ color: '#6C6E63' }}>{step.outVerb}</strong> →{' '}
+              <span style={{ color: '#2C84E0', fontWeight: 600 }}>{step.nextLabel}</span>
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Legend helper ────────────────────────────────────────────────────────────
+// ─── Small helpers ────────────────────────────────────────────────────────────
 
-function SequenceLegendItem({
-  symbol,
-  label,
+function Pill({
+  text,
+  color,
+  soft = false,
 }: {
-  symbol: React.ReactNode;
-  label: string;
+  text: string;
+  color: string;
+  soft?: boolean;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      {symbol}
-      <span
-        style={{
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: 10,
-          color: '#6C6E63',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {label}
-      </span>
-    </div>
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 8px',
+        borderRadius: 9999,
+        background: soft ? hexToSoft(color) : '#E5E7E0',
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        color: soft ? color : '#4D4F46',
+        fontFamily: '"Nunito", system-ui, sans-serif',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
+/** Make a translucent soft background from an accent hex (12% alpha). */
+function hexToSoft(hex: string): string {
+  const h = hex.replace('#', '');
+  if (h.length !== 6) return '#E5E7E0';
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},0.12)`;
+}
+
+function Arrow() {
+  return (
+    <svg width={12} height={12} viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path
+        d="M2 6h8M7 3l3 3-3 3"
+        stroke="#9B9C92"
+        strokeWidth={1.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

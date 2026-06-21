@@ -1,34 +1,29 @@
 /**
- * FlowPlayer — the player engine for a single Flow.
+ * FlowPlayer — the player engine for a single Flow (the guided tour).
  *
- * This is the single source of truth for `activeStep` and play state. It wires
- * three synced surfaces from the same step value so they can never drift:
+ * Single source of truth for `activeStep` and play state. It wires two synced
+ * surfaces from the same resolved-step model so they can never drift:
  *
- *   1. FlowTrace    — the animated SVG module-map; a pulse travels node→node
- *                     and the active node pops with ph-yellow.
- *   2. SequenceRail — a sequence-diagram rail; the active step's row glows.
- *   3. Detail strip — full plain-language description, module name, owning
- *                     service/cluster, transition verb, and file path.
+ *   1. FlowTrace    — the aligned, ZOOMABLE flow diagram. One card per step,
+ *                     stacked on a centre axis, joined by labeled connectors.
+ *                     The viewport re-centres on the active card; the user can
+ *                     wheel-zoom / drag-pan / fit.
+ *   2. SequenceRail — the GUIDED WALKTHROUGH panel: a vertical, richly-explained
+ *                     list of steps; the active one expands into a full briefing
+ *                     (what / who / where in code / how control hands off).
  *
- * At the top a synthesized one-liner tells the viewer what the flow does
- * end-to-end before they start watching.
- *
- * Controls: Prev / Play-Pause / Next, ~1.1s auto-advance.
+ * A synthesized one-liner up top tells the viewer what the flow accomplishes
+ * end-to-end before they start. Controls: Prev / Play-Pause / Next + progress
+ * dots, with clear active-step emphasis.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Flow, FunctionNode, LighthouseData } from '../../types/lighthouse';
+import type { Flow, LighthouseData } from '../../types/lighthouse';
 import { FlowTrace } from './FlowTrace';
 import { SequenceRail } from './SequenceRail';
-import {
-  buildLookups,
-  deriveParticipants,
-  pickFunctionForModule,
-  synthesizeFlowOneLiner,
-  transitionVerb,
-} from './flowEngine';
+import { buildLookups, resolveSteps, synthesizeFlowOneLiner } from './flowEngine';
 
-const PLAY_INTERVAL_MS = 1100;
+const PLAY_INTERVAL_MS = 2600;
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
@@ -125,11 +120,11 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
   const lastForcedRef = useRef<number | undefined>(undefined);
   const totalSteps = flow.steps.length;
 
-  // ── Derived model (memoized) ──────────────────────────────────────────────
+  // ── Resolved model (single source of truth for both surfaces) ─────────────
   const lookups = useMemo(() => buildLookups(data), [data]);
-  const participants = useMemo(
-    () => deriveParticipants(flow, lookups.nodeById, lookups.clusterById),
-    [flow, lookups],
+  const resolved = useMemo(
+    () => resolveSteps(flow, lookups, data.edges, data.functions),
+    [flow, lookups, data.edges, data.functions],
   );
 
   // ── Flow one-liner: synthesized end-to-end summary ────────────────────────
@@ -137,25 +132,6 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
     () => synthesizeFlowOneLiner(flow, lookups.nodeById, lookups.clusterById),
     [flow, lookups],
   );
-
-  // ── Active step facts for the detail strip ────────────────────────────────
-  const activeStep = flow.steps[activeIndex];
-  const activeNode = activeStep ? lookups.nodeById.get(activeStep.node) : undefined;
-  const activeCluster = activeNode ? lookups.clusterById.get(activeNode.parent) : undefined;
-  const activeFn: FunctionNode | undefined = activeStep
-    ? pickFunctionForModule(data.functions, activeStep.node)
-    : undefined;
-
-  // ── Transition verb: what connects the previous step to this one ──────────
-  const prevStepNode = activeIndex > 0 ? flow.steps[activeIndex - 1]?.node : undefined;
-  const verb = transitionVerb(prevStepNode, activeStep?.node, data.edges);
-
-  // ── Next module (for "then calls →") label ────────────────────────────────
-  const nextStep = flow.steps[activeIndex + 1];
-  const nextNode = nextStep ? lookups.nodeById.get(nextStep.node) : undefined;
-  const nextVerb = nextStep
-    ? transitionVerb(activeStep?.node, nextStep.node, data.edges)
-    : undefined;
 
   // ── Forced step from parent (incoming selectedNodeId) ─────────────────────
   useEffect(() => {
@@ -240,22 +216,12 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
     setActiveIndex(index);
   }, []);
 
-  const selectParticipant = useCallback(
-    (nodeId: string) => {
-      const idx = flow.steps.findIndex((s) => s.node === nodeId);
-      if (idx >= 0) goToStep(idx);
-    },
-    [flow, goToStep],
-  );
-
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
-
-      {/* ── Flow one-liner (what this flow does end-to-end) ─────────────── */}
+      {/* ── Flow one-liner (what this flow accomplishes end-to-end) ───────── */}
       <div
         style={{
-          padding: '10px 20px',
+          padding: '12px 20px',
           background: '#DCEAF6',
           borderBottom: '1px solid #BFC1B7',
           display: 'flex',
@@ -263,14 +229,13 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
           gap: 10,
         }}
       >
-        {/* Info icon */}
         <svg
           width={16}
           height={16}
           viewBox="0 0 16 16"
           fill="none"
           aria-hidden
-          style={{ flexShrink: 0, marginTop: 1 }}
+          style={{ flexShrink: 0, marginTop: 2 }}
         >
           <circle cx={8} cy={8} r={7} stroke="#1078A3" strokeWidth={1.5} />
           <text
@@ -289,8 +254,9 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
           <span
             style={{
               fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-              fontSize: 13,
-              color: '#1078A3',
+              fontSize: 13.5,
+              fontWeight: 600,
+              color: '#0E5E80',
               lineHeight: 1.5,
             }}
           >
@@ -302,10 +268,10 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
               fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
               fontSize: 11,
               color: '#5A9DC0',
-              marginTop: 2,
+              marginTop: 3,
             }}
           >
-            Press play or use Prev / Next to walk through each step. The map and sequence diagram stay in sync.
+            New here? Press play, or step with Prev / Next. The diagram (left) and the walkthrough (right) stay in sync — the diagram is zoomable.
           </span>
         </div>
       </div>
@@ -400,204 +366,24 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
         </div>
       </div>
 
-      {/* ── Two synced surfaces ─────────────────────────────────────────── */}
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-        {/* ── Active step detail strip ─────────────────────────────────── */}
-        <div
-          style={{
-            background: '#FFFFFF',
-            border: '1px solid #BFC1B7',
-            borderLeft: '3px solid #F7A501',
-            borderRadius: 6,
-            padding: '14px 16px',
-          }}
-        >
-          {/* Step number + module name + cluster badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-            {/* Step number pill */}
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 22,
-                height: 22,
-                borderRadius: '50%',
-                background: '#F7A501',
-                fontFamily: '"IBM Plex Mono", monospace',
-                fontSize: 10,
-                fontWeight: 700,
-                color: '#23251D',
-                flexShrink: 0,
-              }}
-            >
-              {activeIndex + 1}
-            </span>
-
-            {/* Module name (the "who handles this") */}
-            <span
-              style={{
-                fontFamily: '"Nunito", system-ui, sans-serif',
-                fontSize: 14,
-                fontWeight: 800,
-                color: '#151515',
-              }}
-            >
-              {activeNode?.label ?? activeStep?.node ?? '—'}
-            </span>
-
-            {/* Owning cluster/service badge */}
-            {activeCluster && (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '2px 8px',
-                  borderRadius: 9999,
-                  background: '#E5E7E0',
-                  fontSize: 10,
-                  fontWeight: 600,
-                  letterSpacing: '0.04em',
-                  textTransform: 'uppercase',
-                  color: '#4D4F46',
-                  fontFamily: '"Nunito", system-ui, sans-serif',
-                }}
-              >
-                {activeCluster.label}
-              </span>
-            )}
-
-            {/* Relevant function name (if available) */}
-            {activeFn && (
-              <code
-                style={{
-                  fontFamily: '"IBM Plex Mono", monospace',
-                  fontSize: 11,
-                  color: '#6C6E63',
-                  background: '#E5E7E0',
-                  borderRadius: 4,
-                  padding: '1px 6px',
-                }}
-              >
-                {activeFn.name}()
-              </code>
-            )}
-          </div>
-
-          {/* "incoming from" transition label — tells you the handoff */}
-          {activeIndex > 0 && prevStepNode && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                marginBottom: 6,
-              }}
-            >
-              <svg width={12} height={12} viewBox="0 0 12 12" fill="none" aria-hidden>
-                <path d="M2 6h8M7 3l3 3-3 3" stroke="#9B9C92" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span
-                style={{
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  fontSize: 11,
-                  color: '#9B9C92',
-                  fontStyle: 'italic',
-                }}
-              >
-                {lookups.nodeById.get(prevStepNode)?.label ?? prevStepNode}{' '}
-                <strong style={{ color: '#6C6E63', fontStyle: 'normal' }}>{verb}</strong>{' '}
-                {activeNode?.label ?? activeStep?.node}
-              </span>
-            </div>
-          )}
-
-          {/* What happens — the full plain-language description */}
-          <p
-            style={{
-              margin: '0 0 0',
-              fontSize: 13,
-              lineHeight: 1.6,
-              color: '#23251D',
-              fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-              fontWeight: 400,
-            }}
-          >
-            {activeStep?.description ?? 'No step selected.'}
-          </p>
-
-          {/* "then calls →" — next handoff */}
-          {nextStep && nextNode && nextVerb && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                marginTop: 8,
-                paddingTop: 8,
-                borderTop: '1px solid #DCDFD2',
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  fontSize: 11,
-                  color: '#9B9C92',
-                }}
-              >
-                then{' '}
-                <strong style={{ color: '#6C6E63' }}>{nextVerb}</strong>
-                {' '}→{' '}
-                <span style={{ color: '#2C84E0', fontWeight: 600 }}>
-                  {nextNode.label}
-                </span>
-              </span>
-              <span
-                style={{
-                  fontFamily: '"IBM Plex Mono", monospace',
-                  fontSize: 9,
-                  color: '#9B9C92',
-                  marginLeft: 4,
-                  background: '#E5E7E0',
-                  borderRadius: 3,
-                  padding: '1px 5px',
-                }}
-              >
-                step {activeIndex + 2}
-              </span>
-            </div>
-          )}
-
-          {/* File path */}
-          {activeNode?.path && (
-            <code
-              style={{
-                display: 'inline-block',
-                marginTop: 8,
-                fontFamily: '"IBM Plex Mono", monospace',
-                fontSize: 10,
-                color: '#9B9C92',
-                background: '#F0F0EC',
-                borderRadius: 3,
-                padding: '2px 6px',
-              }}
-            >
-              {activeNode.path}
-            </code>
-          )}
-        </div>
-
-        {/* ── Map trace ─────────────────────────────────────────────────── */}
+      {/* ── Two synced surfaces: zoomable diagram + guided walkthrough ────── */}
+      <div
+        style={{
+          padding: 16,
+          display: 'grid',
+          gridTemplateColumns: 'minmax(360px, 1.1fr) minmax(340px, 1fr)',
+          gap: 16,
+          alignItems: 'start',
+        }}
+      >
+        {/* Left: aligned, zoomable flow diagram */}
         <FlowTrace
-          flow={flow}
-          participants={participants}
-          edges={data.edges}
+          steps={resolved}
           activeStep={activeIndex}
-          onSelectParticipant={selectParticipant}
+          onSelectStep={goToStep}
         />
 
-        {/* ── Sequence rail ─────────────────────────────────────────────── */}
+        {/* Right: guided walkthrough / tour panel */}
         <div
           style={{
             background: '#FFFFFF',
@@ -607,8 +393,7 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
           }}
         >
           <SequenceRail
-            flow={flow}
-            participants={participants}
+            steps={resolved}
             activeStep={activeIndex}
             onSelectStep={goToStep}
           />

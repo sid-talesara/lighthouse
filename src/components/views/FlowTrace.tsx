@@ -1,110 +1,89 @@
 /**
- * FlowTrace — the animated module-map trace.
+ * FlowTrace — the aligned, zoomable flow diagram (the marquee visual).
  *
- * Shows the unique modules (services/clusters) the flow touches as labeled
- * nodes arranged in visit order. A yellow pulse travels along the connector
- * each time the active step advances. Clear legend and caption tell the viewer
- * what they're looking at.
+ * This is NOT a scattered node cloud. It is a single, deliberately-aligned
+ * top-to-bottom diagram: every step is a card stacked in execution order on a
+ * shared centre axis, joined by straight, labeled connectors (the edge verb —
+ * calls / uses / depends). The newcomer reads it like a recipe, top to bottom.
  *
- * The animation is driven entirely by the `activeStep` prop (single source of
- * truth lives in FlowPlayer) plus SMIL animateMotion on the live segment.
+ *   • Vertical centre rail keeps everything aligned on one axis.
+ *   • One card per step, in order, with a left cluster-accent stripe, step
+ *     number, module label, owning cluster/service, and the relevant function.
+ *   • Connectors carry the handoff verb so the path "reads".
+ *   • The active step glows yellow; visited steps are solid; upcoming dimmed.
+ *   • A travelling yellow pulse animates the active handoff.
+ *   • The whole diagram lives inside ZoomPanViewport → wheel-zoom, drag-pan,
+ *     and zoom/fit controls. As the step advances the viewport re-centres on
+ *     the active card so detail stays in frame.
+ *
+ * Driven entirely by the `steps` (ResolvedStep[]) + `activeStep` props so it can
+ * never drift from the tour panel.
  */
 
-import { useMemo } from 'react';
-import type { Flow } from '../../types/lighthouse';
-import {
-  clusterColor,
-  deriveTraceSegments,
-  layoutTrace,
-  type Participant,
-} from './flowEngine';
-import type { Edge } from '../../types/lighthouse';
+import { useEffect, useMemo, useRef } from 'react';
+import { ZoomPanViewport, type ZoomPanHandle } from './ZoomPanViewport';
+import type { ResolvedStep } from './flowEngine';
 
 interface Props {
-  flow: Flow;
-  participants: Participant[];
-  edges: Edge[];
-  /** Index into flow.steps of the currently active step. */
+  steps: ResolvedStep[];
+  /** Index into steps of the currently active step. */
   activeStep: number;
-  onSelectParticipant: (nodeId: string) => void;
+  onSelectStep: (stepIndex: number) => void;
 }
 
-const WIDTH = 640;
-const HEIGHT = 300;
+// ── Aligned vertical layout geometry ──────────────────────────────────────────
+const CARD_W = 360;
+const CARD_H = 96;
+const V_GAP = 56; // vertical gap between cards (connector lives here)
+const TOP_PAD = 28;
+const SIDE_PAD = 40;
+const CENTER_X = SIDE_PAD + CARD_W / 2;
+const CONTENT_W = CARD_W + SIDE_PAD * 2;
+
+function cardTop(i: number): number {
+  return TOP_PAD + i * (CARD_H + V_GAP);
+}
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
-/** Break a label into up to 2 lines at ~14 chars each for legibility. */
-function wrapLabel(s: string, maxChars = 14): [string, string | null] {
-  if (s.length <= maxChars) return [s, null];
-  // Try to break at a space
-  const mid = Math.floor(s.length / 2);
-  let best = -1;
-  let bestDist = Infinity;
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] === ' ' || s[i] === '-' || s[i] === '/') {
-      const dist = Math.abs(i - mid);
-      if (dist < bestDist) { bestDist = dist; best = i; }
-    }
-  }
-  if (best > 0) {
-    return [s.slice(0, best).trim(), s.slice(best + 1).trim()];
-  }
-  return [s.slice(0, maxChars) + '—', s.slice(maxChars)];
-}
+export function FlowTrace({ steps, activeStep, onSelectStep }: Props) {
+  const zoomRef = useRef<ZoomPanHandle | null>(null);
 
-export function FlowTrace({
-  flow,
-  participants,
-  edges,
-  activeStep,
-  onSelectParticipant,
-}: Props) {
-  // participant id → index
-  const participantIndex = useMemo(
-    () => new Map(participants.map((p, i) => [p.id, i])),
-    [participants],
+  const contentHeight = useMemo(
+    () => (steps.length > 0 ? cardTop(steps.length - 1) + CARD_H + TOP_PAD : 200),
+    [steps.length],
   );
 
-  const layout = useMemo(
-    () => layoutTrace(participants.length, WIDTH, HEIGHT),
-    [participants.length],
-  );
-
-  const segments = useMemo(
-    () => deriveTraceSegments(flow, participantIndex, edges),
-    [flow, participantIndex, edges],
-  );
-
-  const activeNodeId = flow.steps[activeStep]?.node;
-  const activeParticipant =
-    activeNodeId !== undefined ? participantIndex.get(activeNodeId) : undefined;
-
-  const liveSegment = segments.find((s) => s.toStep === activeStep);
-
-  const visitedParticipant = (idx: number) =>
-    participants[idx] !== undefined && participants[idx].firstStep <= activeStep;
+  // Re-centre the viewport on the active card whenever the step advances.
+  useEffect(() => {
+    const handle = zoomRef.current;
+    if (!handle) return;
+    const top = cardTop(activeStep);
+    handle.focusRect({ x: SIDE_PAD, y: top, width: CARD_W, height: CARD_H });
+  }, [activeStep]);
 
   return (
     <div
       style={{
-        background: '#EEEFE9',
+        background: '#FFFFFF',
         borderRadius: 6,
         border: '1px solid #BFC1B7',
         overflow: 'hidden',
       }}
     >
-      {/* ── Visual title + legend ─────────────────────────────────────────── */}
+      {/* ── Title + legend ──────────────────────────────────────────────────── */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '8px 14px 6px',
+          padding: '8px 14px',
           borderBottom: '1px solid #DCDFD2',
-          background: '#F5F5F0',
+          background: '#FAFAF7',
+          flexWrap: 'wrap',
+          gap: 8,
         }}
       >
         <span
@@ -117,277 +96,246 @@ export function FlowTrace({
             color: '#6C6E63',
           }}
         >
-          Module map — visit order
+          Flow diagram — read top → bottom
         </span>
-        {/* Legend */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <LegendItem
-            symbol={<Circle fill="#F7A501" stroke="#DD9001" r={7} />}
-            label="Active module"
-          />
-          <LegendItem
-            symbol={<Circle fill="#FFFFFF" stroke="#2C84E0" r={7} />}
-            label="Visited"
-          />
-          <LegendItem
-            symbol={<Circle fill="#FFFFFF" stroke="#DCDFD2" r={7} opacity={0.6} />}
-            label="Upcoming"
-          />
-          <LegendItem
-            symbol={<PulseDot />}
-            label="Request pulse"
-          />
+          <LegendItem swatch="#F7A501" label="Active" filled />
+          <LegendItem swatch="#2C84E0" label="Visited" />
+          <LegendItem swatch="#DCDFD2" label="Upcoming" />
         </div>
       </div>
 
-      <svg
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        width="100%"
-        height={HEIGHT}
-        role="img"
-        aria-label={`Module map for flow: ${flow.name}`}
-        style={{ display: 'block' }}
+      {/* ── Zoomable aligned diagram ────────────────────────────────────────── */}
+      <ZoomPanViewport
+        ref={zoomRef}
+        contentWidth={CONTENT_W}
+        contentHeight={contentHeight}
+        height={480}
       >
-        <defs>
-          <marker
-            id="trace-arrow"
-            markerWidth={8}
-            markerHeight={6}
-            refX={6}
-            refY={3}
-            orient="auto"
-          >
-            <polygon points="0 0, 8 3, 0 6" fill="#BFC1B7" />
-          </marker>
-          <marker
-            id="trace-arrow-live"
-            markerWidth={9}
-            markerHeight={7}
-            refX={6}
-            refY={3.5}
-            orient="auto"
-          >
-            <polygon points="0 0, 9 3.5, 0 7" fill="#F7A501" />
-          </marker>
-          <marker
-            id="trace-arrow-visited"
-            markerWidth={8}
-            markerHeight={6}
-            refX={6}
-            refY={3}
-            orient="auto"
-          >
-            <polygon points="0 0, 8 3, 0 6" fill="#BFC1B7" />
-          </marker>
-        </defs>
+        <svg
+          width={CONTENT_W}
+          height={contentHeight}
+          viewBox={`0 0 ${CONTENT_W} ${contentHeight}`}
+          role="img"
+          aria-label="Aligned flow diagram"
+          style={{ display: 'block' }}
+        >
+          <defs>
+            <marker
+              id="ft-arrow"
+              markerWidth={9}
+              markerHeight={9}
+              refX={4.5}
+              refY={8}
+              orient="auto"
+            >
+              <path d="M1 1 L4.5 8 L8 1" fill="none" stroke="#BFC1B7" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+            </marker>
+            <marker
+              id="ft-arrow-live"
+              markerWidth={11}
+              markerHeight={11}
+              refX={5.5}
+              refY={9}
+              orient="auto"
+            >
+              <path d="M1 1 L5.5 9 L10 1" fill="none" stroke="#DD9001" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+            </marker>
+          </defs>
 
-        {/* ── Connectors (one per transition) ─────────────────────────────── */}
-        {segments.map((seg) => {
-          const a = layout.points[seg.fromParticipant];
-          const b = layout.points[seg.toParticipant];
-          if (!a || !b) return null;
+          {/* ── Connectors between consecutive steps ──────────────────────── */}
+          {steps.map((step, i) => {
+            if (i === 0) return null;
+            const y1 = cardTop(i - 1) + CARD_H;
+            const y2 = cardTop(i);
+            const isLive = i === activeStep;
+            const isPast = i < activeStep;
+            const stroke = isLive ? '#F7A501' : isPast ? '#9FB0BE' : '#DCDFD2';
+            const verb = step.sameAsPrev ? 'same module' : step.inVerb ?? 'flows to';
+            const midY = (y1 + y2) / 2;
 
-          const dx = b.x - a.x;
-          const dy = b.y - a.y;
-          const len = Math.hypot(dx, dy) || 1;
-          const ux = dx / len;
-          const uy = dy / len;
-          const sx = a.x + ux * (layout.nodeR + 2);
-          const sy = a.y + uy * (layout.nodeR + 2);
-          const ex = b.x - ux * (layout.nodeR + 6);
-          const ey = b.y - uy * (layout.nodeR + 6);
+            return (
+              <g key={`conn-${i}`}>
+                <line
+                  x1={CENTER_X}
+                  y1={y1}
+                  x2={CENTER_X}
+                  y2={y2 - 2}
+                  stroke={stroke}
+                  strokeWidth={isLive ? 2.5 : 1.5}
+                  markerEnd={isLive ? 'url(#ft-arrow-live)' : 'url(#ft-arrow)'}
+                  opacity={i > activeStep ? 0.55 : 1}
+                  style={{ transition: 'stroke 220ms ease-out, opacity 220ms ease-out' }}
+                />
+                {/* Verb chip on the connector */}
+                <g transform={`translate(${CENTER_X}, ${midY})`}>
+                  <rect
+                    x={-(verb.length * 3.4 + 10)}
+                    y={-9}
+                    width={verb.length * 6.8 + 20}
+                    height={18}
+                    rx={9}
+                    fill="#FFFFFF"
+                    stroke={isLive ? '#F7A501' : '#DCDFD2'}
+                    strokeWidth={isLive ? 1.5 : 1}
+                    style={{ transition: 'stroke 220ms ease-out' }}
+                  />
+                  <text
+                    x={0}
+                    y={4}
+                    textAnchor="middle"
+                    fontSize={10}
+                    fontWeight={600}
+                    fontFamily="IBM Plex Mono, monospace"
+                    fill={isLive ? '#B17816' : '#9B9C92'}
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {verb}
+                  </text>
+                </g>
+                {/* Travelling pulse on the live connector */}
+                {isLive && (
+                  <circle r={5} fill="#F7A501" stroke="#DD9001" strokeWidth={1.5}>
+                    <animateMotion
+                      dur="0.7s"
+                      fill="freeze"
+                      keyPoints="0;1"
+                      keyTimes="0;1"
+                      calcMode="spline"
+                      keySplines="0.42 0 0.58 1"
+                      path={`M ${CENTER_X} ${y1} L ${CENTER_X} ${y2 - 2}`}
+                    />
+                  </circle>
+                )}
+              </g>
+            );
+          })}
 
-          const isLive = liveSegment === seg;
-          const isPast = seg.toStep < activeStep;
-          const isFuture = seg.toStep > activeStep;
+          {/* ── Step cards (aligned on the centre axis) ───────────────────── */}
+          {steps.map((step, i) => {
+            const top = cardTop(i);
+            const isActive = i === activeStep;
+            const visited = i < activeStep;
+            const accent = step.color;
 
-          const stroke = isLive ? '#F7A501' : isPast ? '#BFC1B7' : '#DCDFD2';
-          const dashed = !seg.real;
+            const cardFill = isActive ? '#FFFBF2' : '#FFFFFF';
+            const cardStroke = isActive ? '#F7A501' : visited ? '#BFC1B7' : '#DCDFD2';
+            const opacity = isActive ? 1 : visited ? 1 : 0.72;
 
-          // Edge kind label — shown on past segments to explain the connection
-          const midX = (sx + ex) / 2;
-          const midY = (sy + ey) / 2;
-          const kindLabel = seg.real
-            ? (seg.kind === 'calls' ? 'calls' : seg.kind === 'imports' ? 'uses' : 'depends')
-            : '';
+            return (
+              <g
+                key={step.nodeId + '-' + i}
+                transform={`translate(${SIDE_PAD}, ${top})`}
+                style={{ cursor: 'pointer' }}
+                onClick={() => onSelectStep(i)}
+                role="button"
+                aria-label={`Step ${i + 1}: ${step.label}`}
+                aria-current={isActive ? 'step' : undefined}
+                opacity={opacity}
+              >
+                {/* Card body */}
+                <rect
+                  x={0}
+                  y={0}
+                  width={CARD_W}
+                  height={CARD_H}
+                  rx={8}
+                  fill={cardFill}
+                  stroke={cardStroke}
+                  strokeWidth={isActive ? 2.5 : 1.5}
+                  style={{ transition: 'stroke 220ms ease-out, fill 220ms ease-out' }}
+                />
+                {/* Cluster accent stripe */}
+                <rect x={0} y={0} width={6} height={CARD_H} rx={3} fill={accent} />
 
-          return (
-            <g key={`seg-${seg.toStep}`}>
-              <line
-                x1={sx}
-                y1={sy}
-                x2={ex}
-                y2={ey}
-                stroke={stroke}
-                strokeWidth={isLive ? 2.5 : 1.5}
-                strokeDasharray={dashed ? '5 4' : undefined}
-                markerEnd={isLive ? 'url(#trace-arrow-live)' : 'url(#trace-arrow)'}
-                opacity={isFuture ? 0.4 : 1}
-                style={{ transition: 'stroke 220ms ease-out, opacity 220ms ease-out' }}
-              />
-              {/* Edge kind label on the connector midpoint (past segments) */}
-              {isPast && kindLabel && (
+                {/* Step-number medallion */}
+                <circle
+                  cx={34}
+                  cy={CARD_H / 2}
+                  r={17}
+                  fill={isActive ? '#F7A501' : visited ? accent : '#EEEFE9'}
+                  stroke={isActive ? '#DD9001' : visited ? accent : '#DCDFD2'}
+                  strokeWidth={1.5}
+                  style={{ transition: 'fill 220ms ease-out' }}
+                />
                 <text
-                  x={midX}
-                  y={midY - 5}
+                  x={34}
+                  y={CARD_H / 2 + 5}
                   textAnchor="middle"
-                  fontSize={9}
+                  fontSize={15}
+                  fontWeight={800}
+                  fontFamily="Nunito, system-ui"
+                  fill={isActive || visited ? '#FFFFFF' : '#9B9C92'}
+                >
+                  {i + 1}
+                </text>
+
+                {/* Module label */}
+                <text
+                  x={62}
+                  y={30}
+                  fontSize={15}
+                  fontWeight={800}
+                  fontFamily="Nunito, system-ui"
+                  fill="#151515"
+                >
+                  {truncate(step.label, 30)}
+                </text>
+
+                {/* Cluster · Service line */}
+                <text
+                  x={62}
+                  y={50}
+                  fontSize={10.5}
                   fontWeight={600}
                   fontFamily="IBM Plex Mono, monospace"
-                  fill="#9B9C92"
-                  style={{ pointerEvents: 'none', userSelect: 'none' }}
-                >
-                  {kindLabel}
-                </text>
-              )}
-              {/* Moving pulse dot on the live segment */}
-              {isLive && (
-                <circle
-                  key={`pulse-${seg.toStep}`}
-                  r={6}
-                  fill="#F7A501"
-                  stroke="#DD9001"
-                  strokeWidth={1.5}
-                >
-                  <animateMotion
-                    dur="0.85s"
-                    fill="freeze"
-                    keyPoints="0;1"
-                    keyTimes="0;1"
-                    calcMode="spline"
-                    keySplines="0.42 0 0.58 1"
-                    path={`M ${sx} ${sy} L ${ex} ${ey}`}
-                  />
-                  <animate
-                    attributeName="opacity"
-                    dur="0.85s"
-                    values="0;1;1"
-                    keyTimes="0;0.15;1"
-                    fill="freeze"
-                  />
-                </circle>
-              )}
-            </g>
-          );
-        })}
-
-        {/* ── Participant nodes ───────────────────────────────────────────── */}
-        {participants.map((p, idx) => {
-          const pt = layout.points[idx];
-          if (!pt) return null;
-          const isActive = idx === activeParticipant;
-          const visited = visitedParticipant(idx);
-          const accent = clusterColor(p.cluster?.id);
-
-          const fill = isActive ? '#F7A501' : '#FFFFFF';
-          const border = isActive ? '#DD9001' : visited ? accent : '#DCDFD2';
-          const labelColor = isActive ? '#151515' : visited ? '#4D4F46' : '#9B9C92';
-
-          const [line1, line2] = wrapLabel(truncate(p.label, 28), 15);
-
-          return (
-            <g
-              key={p.id}
-              transform={`translate(${pt.x},${pt.y})`}
-              style={{ cursor: 'pointer' }}
-              onClick={() => onSelectParticipant(p.id)}
-              role="button"
-              aria-label={`${p.label}${isActive ? ' (active)' : ''}`}
-            >
-              {/* Pop ring when active */}
-              {isActive && (
-                <circle
-                  r={layout.nodeR + 8}
-                  fill="none"
-                  stroke="#F7A501"
-                  strokeWidth={2}
-                  opacity={0.3}
-                  style={{ animation: 'flowNodePop 600ms ease-out both' }}
-                />
-              )}
-              <circle
-                r={layout.nodeR}
-                fill={fill}
-                stroke={border}
-                strokeWidth={isActive ? 2.5 : visited ? 2 : 1.5}
-                opacity={visited || isActive ? 1 : 0.5}
-                style={{
-                  transition: 'fill 220ms ease-out, stroke 220ms ease-out, opacity 220ms ease-out',
-                }}
-              />
-              {/* Cluster accent dot (skip when active — yellow fill owns it) */}
-              {!isActive && visited && (
-                <circle cx={0} cy={-layout.nodeR + 8} r={4} fill={accent} />
-              )}
-              {/* Step number badge */}
-              <text
-                x={0}
-                y={line2 ? -2 : 5}
-                textAnchor="middle"
-                fontSize={13}
-                fontWeight={800}
-                fontFamily="Nunito, system-ui"
-                fill={isActive ? '#151515' : visited ? '#4D4F46' : '#B6B7AF'}
-              >
-                {p.firstStep + 1}
-              </text>
-              {/* Module label below the node — wrapped */}
-              <text
-                x={0}
-                y={layout.nodeR + 18}
-                textAnchor="middle"
-                fontSize={11}
-                fontWeight={isActive ? 700 : visited ? 600 : 400}
-                fontFamily="Nunito, system-ui"
-                fill={labelColor}
-                style={{ transition: 'fill 220ms ease-out' }}
-              >
-                {line1}
-              </text>
-              {line2 && (
-                <text
-                  x={0}
-                  y={layout.nodeR + 31}
-                  textAnchor="middle"
-                  fontSize={11}
-                  fontWeight={isActive ? 700 : visited ? 600 : 400}
-                  fontFamily="Nunito, system-ui"
-                  fill={labelColor}
-                  style={{ transition: 'fill 220ms ease-out' }}
-                >
-                  {line2}
-                </text>
-              )}
-              {/* Cluster name below module label */}
-              {p.cluster && (
-                <text
-                  x={0}
-                  y={layout.nodeR + (line2 ? 44 : 31)}
-                  textAnchor="middle"
-                  fontSize={9}
-                  fontWeight={500}
-                  fontFamily="IBM Plex Mono, monospace"
-                  fill={visited || isActive ? accent : '#C5C6BE'}
+                  fill={accent}
                   letterSpacing="0.03em"
-                  style={{ transition: 'fill 220ms ease-out' }}
                 >
-                  {truncate(p.cluster.label.toUpperCase(), 18)}
+                  {truncate(
+                    [step.cluster?.label, step.service?.name]
+                      .filter(Boolean)
+                      .join('  ·  ')
+                      .toUpperCase() || 'MODULE',
+                    40,
+                  )}
                 </text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
 
-      {/* ── Caption ──────────────────────────────────────────────────────────── */}
+                {/* Function / file hint */}
+                <text
+                  x={62}
+                  y={72}
+                  fontSize={10.5}
+                  fontFamily="IBM Plex Mono, monospace"
+                  fill="#6C6E63"
+                >
+                  {step.fn
+                    ? truncate(step.fn.name + '()', 42)
+                    : truncate(step.path ?? '', 42)}
+                </text>
+
+                {/* Short description sliver */}
+                <text
+                  x={62}
+                  y={90}
+                  fontSize={10}
+                  fontFamily="system-ui, sans-serif"
+                  fill="#9B9C92"
+                >
+                  {truncate(step.description, 46)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </ZoomPanViewport>
+
+      {/* ── Caption ─────────────────────────────────────────────────────────── */}
       <div
         style={{
-          padding: '6px 14px 8px',
+          padding: '7px 14px',
           borderTop: '1px solid #DCDFD2',
-          background: '#F5F5F0',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
+          background: '#FAFAF7',
         }}
       >
         <span
@@ -398,66 +346,38 @@ export function FlowTrace({
             letterSpacing: '0.02em',
           }}
         >
-          Each circle = a module/service. The number shows visit order. The yellow pulse = the request moving through the system. Click any module to jump to that step.
+          Each card is one step, in order. Connector labels show how control passes (calls / uses / depends). Scroll to zoom, drag to pan, or click a card to jump there.
         </span>
       </div>
-
-      <style>{`
-        @keyframes flowNodePop {
-          from { transform: scale(0.6); opacity: 0.6; }
-          to   { transform: scale(1.2); opacity: 0; }
-        }
-      `}</style>
     </div>
   );
 }
 
-// ─── Legend helpers ───────────────────────────────────────────────────────────
-
-function Circle({
-  fill,
-  stroke,
-  r,
-  opacity = 1,
-}: {
-  fill: string;
-  stroke: string;
-  r: number;
-  opacity?: number;
-}) {
-  return (
-    <svg width={r * 2 + 2} height={r * 2 + 2} style={{ display: 'block' }}>
-      <circle
-        cx={r + 1}
-        cy={r + 1}
-        r={r}
-        fill={fill}
-        stroke={stroke}
-        strokeWidth={1.5}
-        opacity={opacity}
-      />
-    </svg>
-  );
-}
-
-function PulseDot() {
-  return (
-    <svg width={16} height={16} style={{ display: 'block' }}>
-      <circle cx={8} cy={8} r={5} fill="#F7A501" stroke="#DD9001" strokeWidth={1.5} />
-    </svg>
-  );
-}
+// ─── Legend helper ────────────────────────────────────────────────────────────
 
 function LegendItem({
-  symbol,
+  swatch,
   label,
+  filled = false,
 }: {
-  symbol: React.ReactNode;
+  swatch: string;
   label: string;
+  filled?: boolean;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      {symbol}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <svg width={14} height={14} style={{ display: 'block' }}>
+        <rect
+          x={1.5}
+          y={1.5}
+          width={11}
+          height={11}
+          rx={3}
+          fill={filled ? swatch : '#FFFFFF'}
+          stroke={swatch}
+          strokeWidth={1.5}
+        />
+      </svg>
       <span
         style={{
           fontFamily: 'system-ui, sans-serif',
