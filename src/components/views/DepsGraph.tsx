@@ -475,9 +475,9 @@ function DepsGraphInner({
         onEdgesChange={onEdgesChange}
         nodeTypes={NODE_TYPES}
         fitView
-        fitViewOptions={{ padding: 0.14, duration: 600, maxZoom: 1.1 }}
-        minZoom={0.15}
-        maxZoom={2.5}
+        fitViewOptions={{ padding: 0.14, duration: 600, maxZoom: 1.0 }}
+        minZoom={0.08}
+        maxZoom={4}
         defaultViewport={{ x: 0, y: 0, zoom: 0.7 }}
         style={{
           background: '#E8E9E2',
