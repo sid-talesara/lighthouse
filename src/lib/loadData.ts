@@ -15,6 +15,16 @@ function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every(isString);
 }
 
+function validateOptionalStringArray(
+  value: unknown,
+  source: string,
+  label: string,
+): void {
+  if (value !== undefined && !isStringArray(value)) {
+    throw new Error(`${source}: ${label} must be string[] when present`);
+  }
+}
+
 /**
  * Minimal runtime validation — catches the most common mistakes in Lighthouse
  * data before the UI tries to render. Throws on invalid data.
@@ -84,8 +94,28 @@ function validate(raw: unknown, source: string): LighthouseData {
   if (!Array.isArray(d['flows'])) throw new Error(`${source}: flows must be an array`);
   for (const f of d['flows'] as unknown[]) {
     const fl = f as Record<string, unknown>;
+    if (fl['id'] !== undefined && !isString(fl['id'])) throw new Error(`${source}: flow id must be a string when present`);
     if (!isString(fl['name'])) throw new Error(`${source}: flow missing name`);
+    if (fl['summary'] !== undefined && !isString(fl['summary'])) throw new Error(`${source}: flow ${String(fl['name'])} summary must be a string when present`);
     if (!Array.isArray(fl['steps'])) throw new Error(`${source}: flow ${String(fl['name'])} steps must be an array`);
+    for (const s of fl['steps'] as unknown[]) {
+      const step = s as Record<string, unknown>;
+      if (!isString(step['node'])) throw new Error(`${source}: flow ${String(fl['name'])} step missing node`);
+      if (!isString(step['description'])) throw new Error(`${source}: flow ${String(fl['name'])} step missing description`);
+      if (step['zoom'] !== undefined) {
+        if (!step['zoom'] || typeof step['zoom'] !== 'object') {
+          throw new Error(`${source}: flow ${String(fl['name'])} step.zoom must be an object when present`);
+        }
+        const zoom = step['zoom'] as Record<string, unknown>;
+        if (zoom['summary'] !== undefined && !isString(zoom['summary'])) {
+          throw new Error(`${source}: flow ${String(fl['name'])} step.zoom.summary must be a string when present`);
+        }
+        validateOptionalStringArray(zoom['substeps'], source, `flow ${String(fl['name'])} step.zoom.substeps`);
+        validateOptionalStringArray(zoom['key_files'], source, `flow ${String(fl['name'])} step.zoom.key_files`);
+        validateOptionalStringArray(zoom['related_nodes'], source, `flow ${String(fl['name'])} step.zoom.related_nodes`);
+        validateOptionalStringArray(zoom['ask_prompts'], source, `flow ${String(fl['name'])} step.zoom.ask_prompts`);
+      }
+    }
   }
 
   // sections

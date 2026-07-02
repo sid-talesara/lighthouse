@@ -43,10 +43,19 @@ export interface Edge {
 export interface FlowStep {
   node: string; // node id
   description: string;
+  zoom?: {
+    summary?: string;
+    substeps?: string[];
+    key_files?: string[];
+    related_nodes?: string[];
+    ask_prompts?: string[];
+  };
 }
 
 export interface Flow {
+  id?: string;
   name: string;
+  summary?: string;
   steps: FlowStep[];
 }
 

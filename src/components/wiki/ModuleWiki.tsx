@@ -611,6 +611,30 @@ function FlowsSection({
                       {nodeLabel(step.node)}
                     </button>
                     <p className="mt-0.5 text-[12px] leading-snug text-ph-mute">{step.description}</p>
+                    {step.zoom?.summary && (
+                      <p className="mt-1 rounded-ph-sm bg-ph-surface-soft px-2 py-1.5 text-[12px] leading-snug text-ph-body">
+                        {step.zoom.summary}
+                      </p>
+                    )}
+                    {step.zoom?.substeps?.length ? (
+                      <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-[11px] leading-snug text-ph-mute">
+                        {step.zoom.substeps.slice(0, 4).map((substep, index) => (
+                          <li key={`${substep}-${index}`}>{substep}</li>
+                        ))}
+                      </ol>
+                    ) : null}
+                    {step.zoom?.key_files?.length ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {step.zoom.key_files.slice(0, 4).map((file) => (
+                          <code
+                            key={file}
+                            className="rounded-ph-sm border border-ph-border-soft bg-ph-surface-soft px-1.5 py-0.5 text-[10px] text-ph-mute"
+                          >
+                            {file}
+                          </code>
+                        ))}
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}

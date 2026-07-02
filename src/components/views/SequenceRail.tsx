@@ -21,9 +21,11 @@ interface Props {
   steps: ResolvedStep[];
   activeStep: number;
   onSelectStep: (stepIndex: number) => void;
+  onOpenWiki?: (id: string) => void;
+  onAskContext?: (question: string) => void;
 }
 
-export function SequenceRail({ steps, activeStep, onSelectStep }: Props) {
+export function SequenceRail({ steps, activeStep, onSelectStep, onOpenWiki, onAskContext }: Props) {
   return (
     <div>
       {/* ── Header ──────────────────────────────────────────────────────────── */}
@@ -67,6 +69,8 @@ export function SequenceRail({ steps, activeStep, onSelectStep }: Props) {
                 visited={visited}
                 isLast={i === steps.length - 1}
                 onClick={() => onSelectStep(i)}
+                onOpenWiki={onOpenWiki}
+                onAskContext={onAskContext}
               />
             </li>
           );
@@ -84,12 +88,16 @@ function StepRow({
   visited,
   isLast,
   onClick,
+  onOpenWiki,
+  onAskContext,
 }: {
   step: ResolvedStep;
   isActive: boolean;
   visited: boolean;
   isLast: boolean;
   onClick: () => void;
+  onOpenWiki?: (id: string) => void;
+  onAskContext?: (question: string) => void;
 }) {
   const accent = step.color;
   const medallionBg = isActive ? '#F7A501' : visited ? accent : '#EEEFE9';
@@ -280,6 +288,14 @@ function StepRow({
           </p>
         )}
 
+        {isActive && hasZoomDetails(step) && (
+          <ZoomDrilldown
+            step={step}
+            onOpenWiki={onOpenWiki}
+            onAskContext={onAskContext}
+          />
+        )}
+
         {/* Outbound handoff — only when expanded and not the last step */}
         {isActive && step.outVerb && step.nextLabel && (
           <div
@@ -308,6 +324,179 @@ function StepRow({
 }
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
+
+function hasZoomDetails(step: ResolvedStep): boolean {
+  return Boolean(
+    step.zoom?.summary ||
+      step.zoom?.substeps?.length ||
+      step.keyFiles.length ||
+      step.relatedNodes.length ||
+      step.zoom?.ask_prompts?.length,
+  );
+}
+
+function ZoomDrilldown({
+  step,
+  onOpenWiki,
+  onAskContext,
+}: {
+  step: ResolvedStep;
+  onOpenWiki?: (id: string) => void;
+  onAskContext?: (question: string) => void;
+}) {
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        padding: '10px 11px',
+        border: '1px solid #DCDFD2',
+        borderRadius: 6,
+        background: '#FAFAF7',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          marginBottom: 7,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: '"Nunito", system-ui, sans-serif',
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: '#6C6E63',
+          }}
+        >
+          Zoom deeper
+        </span>
+        <span
+          style={{
+            fontFamily: '"IBM Plex Mono", monospace',
+            fontSize: 10,
+            color: '#9B9C92',
+          }}
+        >
+          step {step.index + 1}
+        </span>
+      </div>
+
+      {step.zoom?.summary && (
+        <p
+          style={{
+            margin: '0 0 8px',
+            fontSize: 12.5,
+            lineHeight: 1.55,
+            color: '#4D4F46',
+            fontFamily: 'system-ui, sans-serif',
+          }}
+        >
+          {step.zoom.summary}
+        </p>
+      )}
+
+      {step.zoom?.substeps?.length ? (
+        <ol
+          style={{
+            margin: '7px 0 0',
+            paddingLeft: 18,
+            color: '#4D4F46',
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: 12,
+            lineHeight: 1.55,
+          }}
+        >
+          {step.zoom.substeps.map((substep, index) => (
+            <li key={`${substep}-${index}`}>{substep}</li>
+          ))}
+        </ol>
+      ) : null}
+
+      {step.keyFiles.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 9 }}>
+          {step.keyFiles.slice(0, 6).map((file) => (
+            <code
+              key={file}
+              style={{
+                fontFamily: '"IBM Plex Mono", monospace',
+                fontSize: 10.5,
+                color: '#6C6E63',
+                background: '#FFFFFF',
+                border: '1px solid #DCDFD2',
+                borderRadius: 4,
+                padding: '2px 6px',
+              }}
+            >
+              {file}
+            </code>
+          ))}
+        </div>
+      )}
+
+      {step.relatedNodes.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>
+          {step.relatedNodes.slice(0, 8).map((node) => (
+            <button
+              key={node.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenWiki?.(node.id);
+              }}
+              style={{
+                border: '1px solid #BFC1B7',
+                borderRadius: 999,
+                background: '#FFFFFF',
+                color: '#2C84E0',
+                cursor: onOpenWiki ? 'pointer' : 'default',
+                fontFamily: '"Nunito", system-ui, sans-serif',
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '2px 8px',
+              }}
+              title={`Open ${node.label} wiki`}
+            >
+              {node.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {step.zoom?.ask_prompts?.length ? (
+        <div style={{ display: 'grid', gap: 5, marginTop: 9 }}>
+          {step.zoom.ask_prompts.slice(0, 4).map((prompt) => (
+            <button
+              key={prompt}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAskContext?.(prompt);
+              }}
+              style={{
+                border: '1px solid #D6B15C',
+                borderRadius: 6,
+                background: '#FFFBF2',
+                color: '#6C4A08',
+                cursor: onAskContext ? 'pointer' : 'default',
+                fontFamily: 'system-ui, sans-serif',
+                fontSize: 12,
+                lineHeight: 1.35,
+                padding: '6px 8px',
+                textAlign: 'left',
+              }}
+              title="Ask this question"
+            >
+              Ask: {prompt}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function Pill({
   text,

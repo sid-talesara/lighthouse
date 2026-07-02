@@ -28,12 +28,23 @@ const EdgeSchema = z.object({
   kind: EdgeKind,
 });
 
+const FlowStepZoomSchema = z.object({
+  summary: z.string().trim().optional(),
+  substeps: z.array(NonEmptyString).optional(),
+  key_files: z.array(NonEmptyString).optional(),
+  related_nodes: z.array(NonEmptyString).optional(),
+  ask_prompts: z.array(NonEmptyString).optional(),
+});
+
 const FlowSchema = z.object({
+  id: z.string().trim().optional(),
   name: NonEmptyString,
+  summary: z.string().trim().optional(),
   steps: z.array(
     z.object({
       node: NonEmptyString,
       description: NonEmptyString,
+      zoom: FlowStepZoomSchema.optional(),
     }),
   ),
 });
@@ -273,6 +284,24 @@ export const LighthouseDataSchema = z
             path: ["flows", flowIndex, "steps", stepIndex, "node"],
           });
         }
+
+        step.zoom?.related_nodes?.forEach((relatedNode, relatedIndex) => {
+          if (!allGraphIds.has(relatedNode)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `flow step zoom.related_nodes references missing id "${relatedNode}"`,
+              path: [
+                "flows",
+                flowIndex,
+                "steps",
+                stepIndex,
+                "zoom",
+                "related_nodes",
+                relatedIndex,
+              ],
+            });
+          }
+        });
       });
     });
 

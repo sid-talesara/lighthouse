@@ -10,6 +10,7 @@ import type {
   Cluster,
   Edge,
   Flow,
+  FlowStep,
   FunctionNode,
   LighthouseData,
   LighthouseNode,
@@ -70,6 +71,8 @@ export interface ResolvedStep {
   nodeId: string;
   /** Plain-language description from the flow data. */
   description: string;
+  /** Optional drilldown details generated for zoomable onboarding flows. */
+  zoom: FlowStep['zoom'];
   /** Resolved node (may be missing if data is sparse). */
   node: LighthouseNode | undefined;
   /** Display label for the module handling this step. */
@@ -82,6 +85,10 @@ export interface ResolvedStep {
   fn: FunctionNode | undefined;
   /** Repo-relative file path, if known. */
   path: string | undefined;
+  /** Repo-relative files that explain this specific step. */
+  keyFiles: string[];
+  /** Related graph ids that can be opened from the drilldown panel. */
+  relatedNodes: { id: string; label: string }[];
   /** Stable accent color for this step's cluster. */
   color: string;
   /** True when this step stays on the same module as the previous step. */
@@ -112,6 +119,10 @@ export function resolveSteps(
     const cluster = node ? model.clusterById.get(node.parent) : undefined;
     const service = model.serviceByModule.get(step.node);
     const fn = pickFunctionForModule(functions, step.node);
+    const relatedNodes = (step.zoom?.related_nodes ?? []).map((id) => ({
+      id,
+      label: model.nodeById.get(id)?.label ?? model.clusterById.get(id)?.label ?? id,
+    }));
     const prev = index > 0 ? flow.steps[index - 1] : undefined;
     const next = index < flow.steps.length - 1 ? flow.steps[index + 1] : undefined;
     const prevNode = prev ? model.nodeById.get(prev.node) : undefined;
@@ -120,12 +131,15 @@ export function resolveSteps(
       index,
       nodeId: step.node,
       description: step.description,
+      zoom: step.zoom,
       node,
       label: node?.label ?? step.node,
       cluster,
       service,
       fn,
-      path: node?.path ?? node?.key_files?.[0],
+      path: step.zoom?.key_files?.[0] ?? node?.path ?? node?.key_files?.[0],
+      keyFiles: step.zoom?.key_files?.length ? step.zoom.key_files : node?.key_files ?? [],
+      relatedNodes,
       color: clusterColor(cluster?.id),
       sameAsPrev: !!prev && prev.node === step.node,
       inVerb: prev ? transitionVerb(prev.node, step.node, edges) : undefined,

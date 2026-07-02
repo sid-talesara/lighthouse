@@ -84,6 +84,8 @@ export function FlowsView({
   selectedNodeId,
   onSelectNode,
   onHighlightNodes,
+  onOpenWiki,
+  onAskContext,
 }: ViewProps) {
   const [activeFlowIndex, setActiveFlowIndex] = useState(0);
 
@@ -184,7 +186,16 @@ export function FlowsView({
 
         {/* ── Flow selector tabs ──────────────────────────────────────────── */}
         <nav
-          style={{ display: 'flex', gap: 0 }}
+          className="lh-scroll"
+          style={{
+            display: 'flex',
+            gap: 0,
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            overscrollBehaviorX: 'contain',
+            scrollbarWidth: 'thin',
+            paddingBottom: 2,
+          }}
           role="tablist"
           aria-label="Flow selector"
         >
@@ -210,6 +221,7 @@ export function FlowsView({
                   color: isActive ? '#151515' : '#6C6E63',
                   transition: 'color 75ms, border-color 75ms',
                   whiteSpace: 'nowrap',
+                  flex: '0 0 auto',
                   marginBottom: -1,
                   outline: 'none',
                 }}
@@ -293,6 +305,8 @@ export function FlowsView({
               data={data}
               onStepChange={handleStepChange}
               forcedStepIndex={forcedStepIndex}
+              onOpenWiki={onOpenWiki}
+              onAskContext={onAskContext}
             />
           </div>
         ) : null}

@@ -66,6 +66,10 @@ export interface FlowPlayerProps {
   onStepChange: (stepIndex: number, nodeId: string) => void;
   /** Force the active step to a specific index (from incoming selectedNodeId). */
   forcedStepIndex?: number;
+  /** Open the module wiki from drilldown links. */
+  onOpenWiki?: (id: string) => void;
+  /** Send a contextual question into Ask. */
+  onAskContext?: (question: string) => void;
 }
 
 // ─── Small control button ────────────────────────────────────────────────────
@@ -113,7 +117,14 @@ function CtrlButton({
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPlayerProps) {
+export function FlowPlayer({
+  flow,
+  data,
+  onStepChange,
+  forcedStepIndex,
+  onOpenWiki,
+  onAskContext,
+}: FlowPlayerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -129,7 +140,7 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
 
   // ── Flow one-liner: synthesized end-to-end summary ────────────────────────
   const oneLiner = useMemo(
-    () => synthesizeFlowOneLiner(flow, lookups.nodeById, lookups.clusterById),
+    () => flow.summary || synthesizeFlowOneLiner(flow, lookups.nodeById, lookups.clusterById),
     [flow, lookups],
   );
 
@@ -396,6 +407,8 @@ export function FlowPlayer({ flow, data, onStepChange, forcedStepIndex }: FlowPl
             steps={resolved}
             activeStep={activeIndex}
             onSelectStep={goToStep}
+            onOpenWiki={onOpenWiki}
+            onAskContext={onAskContext}
           />
         </div>
       </div>

@@ -26,7 +26,24 @@ SCHEMA (output must match exactly):
     { "source": "node_id", "target": "node_id", "kind": "depends" | "calls" | "imports" }
   ],
   "flows": [
-    { "name": "string", "steps": [{ "node": "node_id", "description": "string" }] }
+    {
+      "id": "string",
+      "name": "string",
+      "summary": "string (one short paragraph)",
+      "steps": [
+        {
+          "node": "node_id",
+          "description": "string",
+          "zoom": {
+            "summary": "string (1-2 sentences explaining what really happens here)",
+            "substeps": ["short concrete substep"],
+            "key_files": ["relative/path.ts"],
+            "related_nodes": ["node_or_cluster_id"],
+            "ask_prompts": ["question a new engineer should ask next"]
+          }
+        }
+      ]
+    }
   ],
   "sections": [
     { "id": "string", "title": "string", "body_markdown": "string", "related_nodes": ["id"] }
@@ -46,13 +63,13 @@ SCHEMA (output must match exactly):
 }
 
 RULES
-1. Complete the analysis in a practical 5-8 minute budget. If needed, prefer a smaller accurate map over an oversized response that times out.
-2. Build a broad, zoomable capability map, not a tiny executive summary. Group into 12-18 top-level CAPABILITY clusters for large repos, named by what they do rather than where files live. Use 8-12 clusters only for genuinely small repos.
-3. For each cluster, enumerate the meaningful implementation modules under it and list each module's key_files. Target 5-9 modules per cluster for small/medium repos and 7-12 modules per cluster for large monorepos. Avoid collapsing unrelated services, packages, routes, workers, UI surfaces, or data layers into one generic module.
+1. Complete the analysis in a practical 20-30 minute budget. For large monorepos, prefer a broad but concise code index over a tiny executive summary.
+2. Build a broad, zoomable capability map. Group into 14-20 top-level CAPABILITY clusters for large repos, named by what they do rather than where files live. Use 8-12 clusters only for genuinely small repos.
+3. For each cluster, enumerate the meaningful implementation modules under it and list each module's key_files. Target 5-9 modules per cluster for small/medium repos and 7-12 modules per cluster for large monorepos. For very large monorepos, target roughly 100-180 implementation modules overall. Avoid collapsing unrelated services, packages, routes, workers, UI surfaces, or data layers into one generic module.
 4. Write a one-sentence summary for every node. No node may have an empty summary.
-5. Capture the 40-90 most important dependency edges between modules for large repos, or 18-40 edges for smaller repos. kind must be one of: depends, calls, imports.
-6. Identify 5-9 key request or data flows with ordered steps when the repo has enough surface area. Each step.node must be a valid node id.
-7. Write 8-12 comprehensive wiki sections in markdown for substantial repos. Each section body must be structured like real internal documentation with nested headings (## and ###), short paragraphs, bullets, concrete file paths, key decisions, operational notes, and "follow the code" pointers. Suggested sections: Overview, Architecture, Services, Key Flows, Entry Points, Data Model, Background Jobs, Realtime, Integrations, Testing, Security, Deployment, Getting Started.
+5. Capture the 70-140 most important dependency edges between modules for large repos, or 18-40 edges for smaller repos. kind must be one of: depends, calls, imports.
+6. Identify 8-14 key request, runtime, onboarding, or data flows with ordered steps when the repo has enough surface area. Each step.node must be a valid node id. Each flow should have a concise summary, and each important step should include zoom metadata: summary, 3-6 substeps, 1-5 key_files, 1-5 related_nodes, and 2-4 ask_prompts. These zoom fields are what let a new engineer drill into a flow and ask follow-up questions.
+7. Write 10-16 comprehensive wiki sections in markdown for substantial repos. Each section body must be structured like real internal documentation with nested headings (## and ###), short paragraphs, bullets, concrete file paths, key decisions, operational notes, and "follow the code" pointers. Keep paragraphs short; do not dump long prose. Suggested sections: Overview, Architecture, Services, Key Flows, Entry Points, Data Model, Background Jobs, Realtime, Integrations, Testing, Security, Deployment, Getting Started.
 8. Every id referenced in clusters.modules, nodes.parent, edges, flows.steps.node, and sections.related_nodes must exist as a node id or cluster id as appropriate for the field.
 9. Keep cluster membership internally consistent: each module id listed in clusters.modules MUST have a node whose parent is that same cluster id. Do not list a module under one cluster while setting its node.parent to another cluster.
 10. Be accurate to the actual code. Do not invent files, paths, or capabilities you did not see.
